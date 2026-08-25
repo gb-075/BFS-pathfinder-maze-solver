@@ -1,0 +1,472 @@
+# FPGA Hardware Portfolio: RV32I CPU + VGA Controller + BFS Maze Solver
+
+This repo contains three independently-verified hardware components,
+built and tested via simulation (Icarus Verilog), aimed at an
+ASIC/FPGA-focused digital design portfolio:
+
+1. **A single-cycle RV32I-subset CPU** (SystemVerilog) — a working
+   general-purpose processor with an automated regression suite and
+   real demo programs.
+2. **A VGA timing controller** — a standard 640x480@60Hz signal
+   generator, timing-verified against the VESA spec.
+3. **A hardware BFS maze pathfinder** — a genuine FSM + hardware-queue
+   accelerator (not software) that solves mazes in hardware, verified
+   against a hand-solved test case.
+
+The CPU is complete and stands on its own. The VGA controller and BFS
+engine are each independently verified and are in the process of being
+integrated together into a maze-solving visual demo (see **Next steps**
+at the bottom). Building and verifying each piece in isolation before
+integrating them is deliberate — it's the same reason the CPU has its
+own regression suite before anything gets built on top of it.
+
+---
+
+# Part 1: Single-Cycle RV32I-Subset CPU
+
+A single-cycle RISC-V (RV32I subset) processor implemented in SystemVerilog,
+with a directed testbench, an automated regression suite, and a minimal
+custom assembler for writing test programs.
+
+## What's implemented
+
+**Instructions (standard RV32I encodings):**
+- R-type ALU: `add sub and or xor sll srl sra slt sltu`
+- I-type ALU: `addi andi ori xori slti sltiu slli srli srai`
+- Memory: `lw sw` (word-aligned only — no byte/halfword variants)
+- Control flow: `beq bne blt bge bltu bgeu jal jalr`
+- Upper immediate: `lui auipc`
+
+**Not implemented:** `fence`, `ecall`/`ebreak`, CSR instructions, and
+byte/halfword loads/stores (`lb`, `lh`, `sb`, `sh`). These were left out
+to keep the first version scoped and fully verified rather than partially
+correct across a larger instruction set.
+
+## Architecture
+
+Classic single-cycle datapath: one instruction fetches, decodes, executes,
+accesses memory, and writes back, all within one clock cycle.
+
+```
+        ┌─────────┐
+        │   PC    │
+        └────┬────┘
+             │
+        ┌────▼────┐      ┌──────────────┐
+        │ Instr   │─────▶│ Control Unit │
+        │ Memory  │      └──────┬───────┘
+        └─────────┘             │
+             │                  │ (alu_ctrl, reg_write,
+             │                  │  mem_read/write, wb_sel, ...)
+        ┌────▼─────┐            │
+        │ Register │◀───────────┘
+        │  File    │
+        └────┬─────┘
+             │
+        ┌────▼────┐      ┌──────────┐
+        │   ALU   │─────▶│   Data   │
+        └─────────┘      │  Memory  │
+                          └──────────┘
+```
+
+**Modules (`rtl/`):**
+| File | Purpose |
+|---|---|
+| `cpu.sv` | Top-level datapath: PC logic, wiring, branch/jump resolution |
+| `control_unit.sv` | Decodes opcode/funct3/funct7 into control signals |
+| `alu.sv` | Arithmetic/logic unit |
+| `regfile.sv` | 32×32-bit register file, x0 hardwired to zero |
+| `imm_gen.sv` | Extracts and sign-extends I/S/B/U/J-type immediates |
+| `instr_mem.sv` | Instruction ROM, loaded from a hex file at sim start |
+| `data_mem.sv` | Word-addressable data RAM |
+
+Branch condition evaluation reuses the ALU rather than adding a separate
+comparator: `beq`/`bne` use `ALU_SUB` + the zero flag, `blt`/`bge` use
+`ALU_SLT`, and `bltu`/`bgeu` use `ALU_SLTU` — matching how the RV32I
+funct3 encoding is actually structured (bit 2 selects equality vs.
+less-than, bit 0 inverts the result for the "not" variants).
+
+## Verification
+
+Verification tool: **Icarus Verilog** (open-source, `iverilog`/`vvp`).
+
+- `tb/tb_cpu.sv` — testbench that loads a program, runs a fixed number of
+  cycles, prints a per-cycle instruction trace, dumps a VCD waveform, and
+  dumps the final register file.
+- `sw/check_runner.py` — automated regression runner: assembles each test
+  program, simulates it, parses the final register dump, and checks
+  specific registers against expected values. This is what `make test`
+  runs.
+
+**Test programs (`sw/`):**
+| Test | Covers |
+|---|---|
+| `test1_arith` | R-type and I-type ALU ops (add/sub/logic/shift/slt) |
+| `test2_branch` | A countdown loop using `bne`, plus a `beq` that must NOT be taken |
+| `test3_memory` | `sw`/`lw` round-trip at two different addresses (checks address computation) |
+| `test4_jump` | `jal`/`jalr` (including verifying skipped instructions are actually skipped), `lui` |
+| `test5_edge_cases` | x0 write immutability, signed (`slt`) vs. unsigned (`sltu`) comparison on negative operands, arithmetic (`sra`) vs. logical (`srl`) shift |
+
+All five currently pass. Run them yourself:
+```
+make test
+```
+
+Run a single test and see the full instruction trace:
+```
+make run TEST=test1_arith CYCLES=20
+```
+
+## Demo programs
+
+Beyond the directed correctness tests, this core runs two small real
+programs that produce actual visible output — not just final register
+values checked internally. Output is produced through a memory-mapped
+"console": any store instruction to address `0x100` prints the stored
+value to the simulation console (see the note in `rtl/data_mem.sv` — this
+is a simulation-only convenience, not real hardware I/O; on an FPGA it
+would be replaced by a real peripheral like UART or LEDs).
+
+**`demo_fibonacci`** — computes and prints the first 10 Fibonacci numbers:
+```
+$ make run TEST=demo_fibonacci CYCLES=70
+CONSOLE: 0 (0x00000000)
+CONSOLE: 1 (0x00000001)
+CONSOLE: 1 (0x00000001)
+CONSOLE: 2 (0x00000002)
+CONSOLE: 3 (0x00000003)
+CONSOLE: 5 (0x00000005)
+CONSOLE: 8 (0x00000008)
+CONSOLE: 13 (0x0000000d)
+CONSOLE: 21 (0x00000015)
+CONSOLE: 34 (0x00000022)
+```
+
+**`demo_bubblesort`** — sorts a 5-element array (`[5, 3, 4, 1, 2]`) in
+data memory using bubble sort implemented directly in RV32I assembly
+(nested loops, branches, loads/stores), then prints the sorted result:
+```
+$ make run TEST=demo_bubblesort CYCLES=250
+CONSOLE: 1 (0x00000001)
+CONSOLE: 2 (0x00000002)
+CONSOLE: 3 (0x00000003)
+CONSOLE: 4 (0x00000004)
+CONSOLE: 5 (0x00000005)
+```
+
+**`demo_gameoflife`** — Conway's Game of Life on an 8x8 toroidal
+(wraparound) grid, running a "glider" pattern for 4 generations. This is
+the most substantial program on the core: `do_generation` is a real
+subroutine (called 4 times from the top level, alternating between two
+grid buffers) that itself calls a second subroutine, `neighbor_sum`, 64
+times per generation — one call per cell. Because `do_generation` is
+non-leaf (it's called, and it calls something else), its own return
+address has to survive those nested calls; this is handled by copying
+`ra` into a dedicated saved register on entry rather than a full stack,
+since the call depth here never exceeds two levels.
+
+Each row is printed as a packed 8-bit value (bit *c* = cell (row, *c*)),
+decoded into ASCII art by a small host-side script:
+```
+$ python3 sw/render_gol.py
+-- Generation 0 --
+........
+#.#.....
+.##.....
+.#......
+........
+........
+........
+........
+
+-- Generation 1 --
+........
+..#.....
+#.#.....
+.##.....
+........
+........
+........
+........
+
+-- Generation 2 --
+........
+.#......
+..##....
+.##.....
+........
+........
+........
+........
+
+-- Generation 3 --
+........
+..#.....
+...#....
+.###....
+........
+........
+........
+........
+```
+The glider visibly drifts diagonally, and the exact bit patterns above
+match the textbook glider phase cycle — a useful independent check that
+this isn't just internally self-consistent but actually correct Game of
+Life behavior.
+
+All three demos are included in `make test` via `sw/check_runner.py`,
+which checks the exact sequence of printed values rather than just "did
+it crash."
+
+
+### Assertions
+
+`cpu.sv` also includes two immediate assertions (checked every cycle,
+independent of which program is running):
+- `x0` must always read as zero
+- `PC` must always be word-aligned
+
+These aren't redundant with the directed tests above — they check
+*design invariants* rather than *program-specific expected values*, so
+they'd catch a class of bug the directed tests might miss entirely
+(e.g. a future change that breaks x0 handling in a way that happens not
+to affect any of the five test programs' checked registers). I verified
+these actually catch bugs, not just silently pass, by deliberately
+breaking x0's write protection in `regfile.sv` and confirming the
+simulation reports `ASSERTION FAILED: x0 read as nonzero` — then
+reverted the change.
+
+(Concurrent SVA syntax — `property`/`assert property` — was tried first,
+but Icarus Verilog's support for it is incomplete; immediate assertions
+inside `always_ff` check the same invariants and are fully supported.)
+
+### A real bug this caught
+
+Early on, `cpu.sv` declared its instruction-decode fields like this:
+```systemverilog
+logic [6:0] opcode = instr[6:0];
+```
+This compiles, but in SystemVerilog that `=` initializer only assigns
+**once, at time zero** — it does not describe a continuous combinational
+connection. Every register write downstream silently used the opcode from
+the very first fetched instruction, forever. The regression suite caught
+it immediately (every test failed with all registers reading zero), and
+the fix was switching to explicit `assign` statements. Worth mentioning
+because it's a real, easy-to-miss SystemVerilog footgun, and finding it
+through the testbench rather than by inspection is the verification
+process working as intended.
+
+## Assembler
+
+`sw/assembler.py` is a small custom assembler (not a general RISC-V
+assembler) supporting exactly the instruction subset this core
+implements, plus labels for branches/jumps. See the docstring at the top
+of the file for syntax. It exists so test programs can be written in
+readable assembly instead of hand-encoded hex.
+
+## Building and running
+
+Requires Icarus Verilog (`apt install iverilog`) and Python 3.
+
+```
+make test              # CPU: compile + run full regression suite
+make test-vga           # VGA controller timing verification
+make test-bfs            # BFS engine verification
+make test-all              # run everything above
+make run TEST=test1_arith CYCLES=20   # run one CPU test/demo, print full trace
+make clean             # remove build artifacts
+```
+
+## Known limitations
+
+- **Single-cycle only.** Every instruction takes one full clock cycle
+  regardless of complexity, which caps achievable clock frequency far
+  below what a pipelined design could reach.
+- **No FPGA deployment yet.** Verified in simulation only; not yet
+  synthesized or run on real hardware.
+- **No formal timing/area analysis yet.** No synthesis has been run, so
+  there's no Fmax, LUT/FF, or power data yet.
+- **Partial ISA.** No CSR/exception/interrupt support, no byte/halfword
+  memory ops.
+- **regfile inspected via hierarchical reference in the testbench**
+  (`dut.u_regfile.regs[i]`) rather than through a dedicated debug
+  interface — fine for a single-cycle core in simulation, but not a
+  pattern that would scale to a real verification environment.
+
+## CPU next steps
+
+This was scoped deliberately small so it could be *fully* verified
+rather than partially correct across more features. Planned extensions,
+roughly in order:
+
+1. **Pipeline it** (single-cycle → 3-stage → 5-stage), adding hazard
+   detection and forwarding. This is also a natural place to start a
+   real design-space exploration: compare max clock frequency, CPI, and
+   resource usage across pipeline depths.
+2. **FPGA deployment** — synthesize and run on real hardware (e.g. an
+   Intel/Altera or Xilinx board), closing real timing rather than just
+   simulating.
+3. **Add a simple cache** in front of data memory and sweep
+   configuration (direct-mapped vs. set-associative, size) to quantify
+   the impact on performance.
+4. **Constrained-random and coverage-driven verification** on top of the
+   current directed tests, plus more SystemVerilog assertions on
+   internal invariants (a couple already exist — see the Assertions
+   section above — but this could grow into a real functional coverage
+   plan).
+5. Eventually, push a block through an open-source ASIC flow
+   (OpenLane/Sky130) to get real area/timing numbers rather than
+   FPGA-only estimates.
+
+---
+
+# Part 2: VGA Timing Controller
+
+`rtl/vga/vga_controller.sv` is a standard 640x480@60Hz VGA sync signal
+generator, following the VESA industry-standard timing spec:
+
+- **Horizontal:** 640 visible + 16 front porch + 96 sync + 48 back porch
+  = 800 total pixel clocks per line
+- **Vertical:** 480 visible + 10 front porch + 2 sync + 33 back porch =
+  525 total lines per frame
+- Both `hsync` and `vsync` are active-low, per spec
+
+It assumes `clk` is already the ~25.175 MHz pixel clock (commonly
+approximated as 25 MHz). On real hardware this comes from a PLL dividing
+down the board's oscillator (typically 50 MHz) — that PLL is
+board-specific and hasn't been added yet since no target board is
+chosen (see Project status below).
+
+## Verification
+
+`tb/tb_vga_controller.sv` measures actual signal edge timing (not just
+internal counter values) and checks it against the spec exactly:
+
+```
+$ make test-vga
+PASS: hsync pulse width: expected 96, got 96
+PASS: total line length: expected 800, got 800
+PASS: vsync pulse width: expected 1600 (2 lines), got 1600
+PASS: total frame length: expected 420000, got 420000
+PASS: pixel_x sweeps 0..639 correctly during the visible area
+ALL VGA TIMING CHECKS PASSED
+```
+
+420000 = 525 lines × 800 clocks — the exact full-frame length per the
+spec, measured directly from `vsync` edge timing rather than assumed.
+
+---
+
+# Part 3: Hardware BFS Maze Pathfinder
+
+`rtl/bfs/bfs_engine.sv` is a genuine hardware accelerator implementing
+breadth-first search over a 2D grid maze — an FSM driving a hardware
+queue (FIFO) and a grid-state memory, **not** software running on the
+CPU from Part 1. This is deliberate: a purpose-built algorithm
+accelerator is a stronger signal for ASIC/FPGA digital design work than
+a general CPU executing another program.
+
+## Algorithm
+
+Standard 4-directional grid BFS:
+1. Enqueue the start cell, mark it visited.
+2. While the queue isn't empty: dequeue a cell, check its four
+   neighbors (up/down/left/right). Any neighbor that's in-bounds, not a
+   wall, and not yet visited gets marked visited, gets its
+   **parent direction** recorded (which way to go to get back toward the
+   start), and gets enqueued.
+3. Once the end cell is dequeued, backtrack from the end to the start by
+   repeatedly following parent-direction pointers, marking each cell
+   `on_path` along the way.
+
+Per-cell state (6 bits, packed into a single memory):
+```
+bit 0     : wall        (1 = wall, static maze data)
+bit 1     : visited
+bits [4:2]: parent_dir   (which direction to move to reach the parent)
+bit 5     : on_path      (set during backtrack - the final rendered path)
+```
+
+## Verification
+
+Rather than trust the algorithm by inspection, `tb/tb_bfs_engine.sv`
+checks it against a **hand-solved** 5x5 test maze:
+
+```
+S . # . .
+. . # . .
+. # # . .
+. . . . .
+# # # . E
+```
+
+I manually traced BFS by hand to get the true shortest path —
+`(0,0)→(1,0)→(2,0)→(3,0)→(3,1)→(3,2)→(3,3)→(4,3)→(4,4)`, 9 cells — and
+the testbench checks the hardware's `on_path` bit for **every one of the
+25 cells**, not just spot-checking a few:
+
+```
+$ make test-bfs
+PASS: path_found asserted
+PASS: all 25 cells' on_path bits match the hand-computed path exactly
+ALL BFS ENGINE CHECKS PASSED
+```
+
+A separate testbench also checks the "no path exists" case (a maze with
+a solid wall completely separating start from end) correctly reports
+failure rather than hanging or returning a wrong answer.
+
+### A real bug this caught
+
+The first version of the direction encoding was backwards: when
+discovering a neighbor by moving *up* from the current cell, I initially
+stored "parent direction = up" for that neighbor — but the parent is
+actually *below* the neighbor (that's the direction you came from), so
+backtracking would have walked in exactly the wrong direction. Tracing
+through the hand-solved maze before writing the testbench caught this
+before it ever ran, which is a big part of why the maze was hand-solved
+in the first place rather than just trusting the RTL by inspection.
+
+---
+
+# Project status & integration plan
+
+**What's fully working right now:**
+- The CPU (Part 1): complete, 8/8 automated tests passing, including
+  real demo programs.
+- The VGA controller (Part 2): complete, timing-verified exactly against
+  spec.
+- The BFS engine (Part 3): complete, verified against a hand-solved
+  maze including the no-path-exists edge case.
+
+**What's not built yet — the integration:**
+The VGA controller and BFS engine are currently independent, verified
+components. Wiring them together (rendering the maze, the BFS frontier,
+and the final path as actual colors on screen) is the next step, along
+with scaling up to a larger, more visually interesting maze than the 5x5
+verification case.
+
+An earlier attempt at a *different* CPU+VGA integration (routing Game of
+Life output through memory-mapped registers to a display) hit a
+persistent bug — an unpacked SystemVerilog array port propagating `X`
+(undefined) values across module boundaries in Icarus Verilog — that
+wasn't worth chasing further. That attempt was abandoned in favor of
+this BFS-based direction, which sidesteps the same pitfall by using a
+plain address/data read interface (see `read_addr`/`read_cell` in
+`bfs_engine.sv`) instead of an unpacked array port.
+
+**Planned next steps, in order:**
+1. Scale the maze up (e.g. 20x15) and build a renderer module mapping
+   BFS grid state to VGA pixel colors — walls, open space, the explored
+   frontier, and the final path each a different color.
+2. A top-level module wiring CPU-free BFS engine + VGA controller +
+   maze data together, verified the same way Part 2 and Part 3 were:
+   simulate first, check specific pixel outputs against known-correct
+   values, before ever touching hardware.
+3. PS/2 keyboard input for interactively selecting start/end points
+   (stretch goal).
+4. Real FPGA deployment once a target board is chosen — this needs a
+   board-specific PLL for the VGA pixel clock and a real pin constraints
+   file, neither of which can be finalized without knowing the exact
+   board.
+

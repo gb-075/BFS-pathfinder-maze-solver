@@ -1,0 +1,3 @@
+sim/*.vvp
+sw/*.hex
+*.vcd
