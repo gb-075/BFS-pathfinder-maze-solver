@@ -25,8 +25,20 @@ test-bfs:
 	iverilog -g2012 -o sim/tb_bfs.vvp rtl/bfs/bfs_engine.sv tb/tb_bfs_engine.sv
 	vvp sim/tb_bfs.vvp
 
+# Full BFS maze pipeline: maze loader + BFS engine + VGA controller + renderer,
+# checked against a real 19x15 generated maze (ground truth computed in Python)
+test-bfs-maze:
+	iverilog -g2012 -o sim/tb_bfs_maze.vvp \
+		rtl/bfs/bfs_engine.sv rtl/bfs/maze_loader.sv rtl/bfs/maze_render.sv \
+		rtl/vga/vga_controller.sv rtl/bfs/bfs_maze_top.sv tb/tb_bfs_maze_top.sv
+	vvp sim/tb_bfs_maze.vvp +MAZEFILE=rtl/bfs/maze_data/maze1.mem
+
+# Regenerate the maze (uses a fixed random seed, so output is reproducible)
+gen-maze:
+	python3 sw/bfs/gen_maze.py
+
 # Run everything
-test-all: test-cpu test-vga test-bfs
+test-all: test-cpu test-vga test-bfs test-bfs-maze
 
 # Run a single CPU test/demo by name and show the full instruction trace + regs,
 # e.g. `make run TEST=test1_arith CYCLES=20`

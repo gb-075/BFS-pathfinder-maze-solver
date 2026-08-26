@@ -30,6 +30,15 @@ module bfs_engine #(
     input  logic clk,
     input  logic rst_n,
     input  logic start,                 // pulse to begin a new search
+    input  logic step_en,               // when 0, freeze FSM progress (once
+                                         // searching) - used to throttle how
+                                         // fast the search visibly animates
+                                         // on a real display; tie to 1'b1 for
+                                         // full-speed operation (e.g. in
+                                         // testbenches). Wall loading and
+                                         // `start` detection in S_IDLE are
+                                         // NOT gated by this - only the
+                                         // active search/backtrack states are.
 
     input  logic [$clog2(GRID_WIDTH)-1:0]  start_col,
     input  logic [$clog2(GRID_HEIGHT)-1:0] start_row,
@@ -113,17 +122,19 @@ module bfs_engine #(
             q_tail  <= '0;
             init_idx <= '0;
         end else begin
-            case (state)
-
-                S_IDLE: begin
-                    if (wall_write_en) begin
-                        grid_mem[wall_write_addr][0] <= wall_write_data; // wall bit
-                    end
-                    if (start) begin
-                        state <= S_INIT;
-                        init_idx <= '0;
-                    end
+            if (state == S_IDLE) begin
+                // Wall loading and start-detection always respond
+                // immediately, regardless of step_en - throttling only
+                // applies once a search is actually in progress.
+                if (wall_write_en) begin
+                    grid_mem[wall_write_addr][0] <= wall_write_data; // wall bit
                 end
+                if (start) begin
+                    state <= S_INIT;
+                    init_idx <= '0;
+                end
+            end else if (step_en) begin
+            case (state)
 
                 // Clear visited/parent/on_path bits for every cell
                 // (wall bits were already loaded and must be preserved).
@@ -260,6 +271,7 @@ module bfs_engine #(
             if ((state == S_DONE || state == S_NO_PATH) && start) begin
                 state <= S_INIT;
                 init_idx <= '0;
+            end
             end
         end
     end

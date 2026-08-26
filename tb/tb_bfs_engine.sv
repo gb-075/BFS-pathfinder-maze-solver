@@ -20,6 +20,7 @@ module tb_bfs_engine;
     localparam int NUM_CELLS = W * H;
 
     logic clk, rst_n, start;
+    logic step_en;
     logic [$clog2(W)-1:0] start_col, end_col;
     logic [$clog2(H)-1:0] start_row, end_row;
     logic wall_write_en;
@@ -30,7 +31,7 @@ module tb_bfs_engine;
     logic [5:0] read_cell;
 
     bfs_engine #(.GRID_WIDTH(W), .GRID_HEIGHT(H)) dut (
-        .clk(clk), .rst_n(rst_n), .start(start),
+        .clk(clk), .rst_n(rst_n), .start(start), .step_en(step_en),
         .start_col(start_col), .start_row(start_row),
         .end_col(end_col), .end_row(end_row),
         .wall_write_en(wall_write_en),
@@ -69,6 +70,7 @@ module tb_bfs_engine;
     initial begin
         rst_n = 0;
         start = 0;
+        step_en = 1;
         wall_write_en = 0;
         repeat (2) @(posedge clk);
         rst_n = 1;
