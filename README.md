@@ -4,10 +4,12 @@ This project was started to learn digital design through a hands-on project alon
 
 Everything here runs in simulation (Icarus Verilog). I don't have an FPGA board yet, so nothing has been synthesized or run on real hardware. A Digilent Nexys A7-100T will be ordered soon, and `constraints/` has pin assignments already prepared for it.
 
+I've been working on this project (including planning and the first few lines of SystemVerilog) since June, 2026. It took me until the end of August, however, to finally start learning how to use Git by completing a few courses so that I could put my work in a repository. I am still constantly learning as I make more commits! 
+
 ## What's in here
 
 - A single-cycle RV32I-subset CPU, written in SystemVerilog
-- A hardware BFS maze solver — an FSM-driven accelerator, not software running on the CPU
+- A hardware BFS maze solver (an FSM-driven accelerator, not software running on the CPU)
 - A VGA controller that renders the maze live: walls, the search frontier as it explores, and the final path, all in different colors
 - PS/2 keyboard support so you can move a cursor and pick your own start/end points
 - A regression suite covering all of the above (700+ checks, 0 failures as of now)
