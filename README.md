@@ -1,6 +1,6 @@
 # FPGA Hardware Portfolio: RV32I CPU + VGA Controller + BFS Maze Solver
 
-This repo contains four independently-verified hardware components,
+This repo contains five independently-verified hardware components,
 built and tested via simulation (Icarus Verilog), aimed at an
 ASIC/FPGA-focused digital design portfolio:
 
@@ -17,14 +17,26 @@ ASIC/FPGA-focused digital design portfolio:
    colors: walls, the explored search frontier, and the final shortest
    path all rendered distinctly, verified against independent
    Python-computed ground truth.
+5. **PS/2 keyboard input** — a full protocol receiver, scan-code
+   decoder, and cursor/selection controller, letting you move a cursor
+   with the arrow keys and interactively pick new start/end points,
+   verified with a simulated keyboard bit-banging real PS/2 timing.
 
-The CPU stands on its own (Part 1). Parts 2 and 3 were built and
+The CPU stands on its own (Part 1). Parts 2, 3, and 5 were built and
 verified independently before being wired together in Part 4 —
 deliberately, so each piece could be checked in isolation before
 integration, the same reason the CPU has its own regression suite before
-anything gets built on top of it. See **Project status & next steps** at
-the bottom for what's built vs. what's left (PS/2 keyboard input, real
-FPGA deployment).
+anything gets built on top of it.
+
+**Quick orientation, if you're skimming this for the first time:**
+`make test-all` runs every regression suite from a clean state (currently
+0 failures across ~700+ individual checks). The most substantial single
+piece is `rtl/bfs/bfs_engine.sv` (Part 3) if you only have time to read
+one file. The target board is a Digilent Nexys A7-100T, with real pin
+constraints already filled in at `constraints/nexys_a7_100t.xdc` — see
+**Choosing a Real Board** further down for why, and **What's left** at
+the very bottom for the one remaining category of work (physical
+synthesis and bring-up, which needs the actual board and Vivado).
 
 ---
 
@@ -451,15 +463,13 @@ and the result renders live to VGA output.
   engine's wall interface at startup, then pulses `start` once loading
   finishes. This mirrors how `instr_mem.sv` loads CPU programs — the
   maze data lives in a plain text file, not hardcoded RTL.
-- **`maze_render.sv`** — combinational rendering: maps a VGA pixel
-  coordinate to a maze cell (via integer division) and queries the BFS
-  engine's `read_addr`/`read_cell` interface to get that cell's state,
-  then outputs a color:
-  - wall → black
-  - open, unexplored → white
-  - visited (BFS frontier) → light blue
-  - on the final path → green
-  - start cell → bright green, end cell → red (override everything else)
+- **`maze_render.sv`** — maps a VGA pixel coordinate to a maze cell and
+  queries the BFS engine's `read_addr`/`read_cell` interface to get that
+  cell's state, then outputs a color: wall → black, open/unexplored →
+  white, visited (BFS frontier) → light blue, on the final path → green,
+  start cell → bright green, end cell → red. (Two more states — a
+  yellow selection cursor, and a synthesis-friendlier way of computing
+  the pixel-to-cell coordinate — were added later; see Parts 5 and 6.)
 - **`bfs_maze_top.sv`** — ties the loader, BFS engine, VGA controller,
   and renderer together, plus a `SLOWDOWN_FACTOR`-controlled throttle
   (see below).
@@ -519,14 +529,21 @@ Python ground truth:
 ```
 $ make test-bfs-maze
 PASS: known wall cell (0,1) is black
-PASS: start cell (0,0) is bright green (start)
+PASS: start cell (currently showing cursor, which starts here too) (0,0) is yellow (cursor)
 PASS: end cell (14,18) is red (end)
 PASS: on-path cell (2,2) is on-path green
 PASS: on-path cell (10,2) is on-path green
 PASS: on-path cell (14,10) is on-path green
+PASS: NEW end point (2,2) after keyboard re-selection (2,2) is red (end)
+PASS: cell on the NEW shorter path (1,0) is on-path green
+PASS: OLD end point - no longer marked, unreached by the new short search (14,18) is white (open, unvisited)
 
 ALL BFS MAZE TOP CHECKS PASSED
 ```
+
+(The last three checks verify the PS/2 keyboard flow — moving the
+selection cursor and re-running the search with a new end point — added
+in Part 5 below; the cursor and yellow highlighting are also from Part 5.)
 
 ### Two more real bugs this caught
 
@@ -560,6 +577,16 @@ the same as "is a no-op," especially across tool version quirks.
   loaded from a file, solved by the hardware BFS engine, and rendered
   live to VGA colors, all verified against independent Python-computed
   ground truth.
+- **PS/2 keyboard input (Part 5): complete** — a full protocol receiver,
+  scan-code decoder, and cursor/selection controller, letting you
+  interactively pick new start/end points and re-run the search, verified
+  end-to-end including a real bit-banged keyboard simulation.
+- **Synthesis-friendly pixel-to-cell math (Part 6): complete** —
+  replaced the division-based coordinate conversion with a
+  counter-based approach, verified against the division-based reference
+  across every pixel of a full frame.
+- **A concrete target board is chosen: Digilent Nexys A7-100T**, with
+  real (not placeholder) pin constraints in `constraints/nexys_a7_100t.xdc`.
 
 An earlier attempt at a *different* CPU+VGA integration (routing Game of
 Life output through memory-mapped registers to a display) hit a
@@ -569,22 +596,173 @@ worth chasing further. That attempt was abandoned in favor of this
 BFS-based direction, which sidesteps the same pitfall by using a plain
 address/data read interface instead of an unpacked array port.
 
-**What's left, roughly in order:**
-1. **PS/2 keyboard input** for interactively selecting start/end points,
-   rather than always using the top-left and bottom-right corners.
-2. **Real FPGA deployment** once a target board is chosen — this needs a
-   board-specific PLL for the VGA pixel clock and a real pin constraints
-   file, neither of which can be finalized without knowing the exact
-   board.
-3. A synthesis-friendlier rewrite of the pixel-to-cell division in
-   `maze_render.sv` (currently uses `/`, which is correct in simulation
-   but not necessarily the best choice for FPGA timing closure at high
-   pixel clocks — a counter-based cell-boundary detector would be more
-   appropriate for real hardware).
-4. Optionally, a proper design-space exploration once this is on real
+---
+
+# Part 5: PS/2 Keyboard Input
+
+Three modules, each independently verified before integration:
+
+- **`rtl/ps2/ps2_receiver.sv`** — the protocol layer. Synchronizes the
+  async `ps2_clk`/`ps2_data` lines (2-stage synchronizer), detects the
+  falling edge the PS/2 protocol samples on, and assembles complete
+  11-bit frames (start bit, 8 data bits LSB-first, odd parity, stop
+  bit) into a byte + valid pulse. Raises `frame_error` instead of
+  silently accepting a bad frame.
+- **`rtl/ps2/scan_code_decoder.sv`** — interprets the raw byte stream
+  into discrete key-press events for the keys this project cares about
+  (arrow keys, `1`, `2`, Enter), correctly tracking the `0xE0` extended
+  prefix and `0xF0` break (release) prefix, and firing nothing at all
+  on a key release.
+- **`rtl/ps2/cursor_controller.sv`** — tracks a selection cursor (moved
+  by arrow keys, clamped to grid bounds), the current start/end cell,
+  and pulses `trigger_search` on Enter.
+
+**Controls:** arrow keys move a yellow selection cursor; `1` sets the
+start point to the cursor's position; `2` sets the end point; Enter
+re-runs the search with the current selection. On power-up, before any
+key is pressed, the maze automatically solves once using default
+corner-to-corner points — keyboard input is an enhancement, not a
+requirement to see the design work.
+
+## Verification
+
+Each module has its own testbench, all using a **real PS/2 keyboard
+simulation** — bit-banging actual protocol timing (start bit, LSB-first
+data, odd parity, stop bit) — rather than shortcutting past the
+protocol layer:
+
+```
+$ make test-ps2
+PASS: received correct scan code 0x1C
+PASS: received correct scan code 0xE0 (extended prefix)
+PASS: bad-parity frame correctly raised frame_error
+PASS: received correct scan code 0xF0 (break prefix)
+ALL PS2 RECEIVER CHECKS PASSED
+
+$ make test-scan-decoder
+[12 checks covering plain keys, extended keys, press+release cycles,
+ and unrecognized keys]
+ALL SCAN CODE DECODER CHECKS PASSED
+
+$ make test-cursor
+[13 checks covering movement, boundary clamping, start/end selection,
+ and the search trigger pulse]
+ALL CURSOR CONTROLLER CHECKS PASSED
+```
+
+The full integration test (`make test-bfs-maze`) goes further: it
+bit-bangs a real sequence of key presses through the actual top-level
+design — move the cursor, set a new end point, press Enter — and
+verifies the hardware re-solves for the new selection correctly,
+including confirming the *old* end point correctly reverts to unvisited
+once the new search runs.
+
+### Real bugs this caught
+
+**A classic same-edge testbench race.** Early versions of these
+testbenches drove `data_valid`/`scan_code` with *blocking* assignments
+immediately after `@(posedge clk)`. Since the DUT's own `always_ff` is
+sensitive to that same edge, this created a genuine race: depending on
+simulator scheduling, the DUT could see the *new* stimulus value on the
+same edge it was set, instead of the value from before the edge — every
+single positive test case failed as a result. The fix is standard
+practice: drive testbench stimulus with *nonblocking* assignments, so
+timing relative to the DUT's own registers is unambiguous. This is a
+textbook Verilog testbench-writing lesson, caught here for real rather
+than just known abstractly.
+
+---
+
+# Part 6: Synthesis-Friendly Pixel-to-Cell Conversion
+
+`maze_render.sv` originally computed which grid cell a VGA pixel
+belongs to using division (`pixel_x / CELL_PX_W`). That's correct in
+simulation, but a wide combinational divider is a poor fit for FPGA
+timing closure at real pixel clock speeds — this was flagged as a known
+follow-up as far back as Part 4's `gol_render.sv` predecessor.
+
+`rtl/bfs/pixel_to_cell.sv` replaces it with the standard technique:
+small counters that increment in step with the pixel clock and roll
+over at each cell boundary, rather than dividing every cycle.
+
+## Verification
+
+Rather than spot-check a few pixels, `tb/tb_pixel_to_cell.sv` checks
+**every single visible pixel across a full frame** (311,240 pixels)
+against a division-based reference computed directly in the testbench:
+
+```
+$ make test-pixel-to-cell
+Checked 311240 visible pixels across a full frame
+ALL PIXEL_TO_CELL CHECKS PASSED (exact match with division reference)
+```
+
+### Two real bugs this caught
+
+**An edge-detector with hidden latency.** The first version detected
+"start of a new line" by registering `video_on` and comparing it
+against its own delayed copy (a classic rising-edge detector). Since
+`video_on` is itself already a registered-derived signal, this added an
+*extra* cycle of latency on top, shifting every cell boundary one pixel
+clock later than correct. The fix was simpler than the original
+approach: check `pixel_x == 0` directly (reliably a single cycle during
+the visible period) instead of edge-detecting a proxy signal at all.
+
+**Comparing a registered output against a zero-latency reference.**
+After fixing the above, the full-frame test *still* failed at every
+cell boundary — but this time it wasn't a design bug. `pixel_to_cell` is
+now sequential, so its output reflects the *previous* cycle's inputs by
+definition — completely normal pipeline latency for synchronous
+hardware. The testbench's reference calculation needed to account for
+that same one-cycle delay to compare correctly. Once fixed, all 311,240
+pixels matched exactly. Worth noting as a design characteristic: the
+final rendered image is shifted by one pixel clock out of ~34 per cell
+(under 3% of one cell's width) — imperceptible, and not something this
+project corrected for further.
+
+---
+
+# Choosing a Real Board: Digilent Nexys A7-100T
+
+With the design otherwise complete, an actual FPGA board was chosen —
+**Digilent Nexys A7-100T** (Xilinx Artix-7, `xc7a100tcsg324-1`) — and
+real pin constraints filled in (`constraints/nexys_a7_100t.xdc`),
+replacing what had been generic placeholder templates.
+
+**Why this board specifically:**
+- Its VGA port uses exactly 4 bits per color channel — identical to
+  this project's `vga_red`/`vga_green`/`vga_blue[3:0]` outputs, no
+  conversion needed.
+- PS/2 keyboard input works with a **regular modern USB keyboard** — the
+  board has no legacy PS/2 connector, but a USB-A "USB Host" port and an
+  onboard microcontroller that emulates a PS/2 device, feeding genuine
+  PS/2 protocol signals to the FPGA. `ps2_receiver.sv` needs no
+  modification.
+- Vivado is AMD's current FPGA toolchain (AMD acquired Xilinx in 2022).
+- Considered and ruled out: the cheaper Basys 3 has VGA but no keyboard
+  input capability at all; the DE10-Lite (Intel/Quartus) has neither
+  VGA nor PS/2 built in and would need extra adapter hardware — in both
+  cases the lower sticker price is misleading once real functional
+  requirements are accounted for.
+
+See `constraints/README.md` for the concrete remaining steps before
+this actually runs on the board — chiefly, adding a Vivado Clocking
+Wizard to derive the ~25 MHz VGA pixel clock from the board's 100 MHz
+oscillator, which can't be done generically ahead of time since it's
+Vivado-IP-generated rather than plain RTL.
+
+---
+
+# What's left
+
+1. **Physical synthesis and hardware bring-up** — requires the actual
+   board (on order) and Vivado, neither of which is available in this
+   development environment. Everything up to this point has been
+   verified as thoroughly as simulation allows; this is the one
+   category of verification simulation genuinely cannot provide.
+2. Optionally, a proper design-space exploration once this is on real
    hardware: how does maze size affect resource usage? How does
    `SLOWDOWN_FACTOR` trade off against how "live" the animation feels?
    This is the kind of quantitative comparison that's especially
    relevant for FPGA-architecture-focused research (see the CPU's
-   "Next steps" section above for the same idea applied there).
-
+   "Next steps" section for the same idea applied there).

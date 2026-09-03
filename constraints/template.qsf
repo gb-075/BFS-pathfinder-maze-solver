@@ -1,0 +1,54 @@
+# template.qsf
+# Intel/Altera Quartus pin assignment template for bfs_maze_top.
+#
+# THIS IS A TEMPLATE, NOT A WORKING CONSTRAINTS FILE. Every PIN_XX value
+# below is a placeholder - it will not synthesize correctly until real
+# pin numbers are filled in for a specific board. See README.md in this
+# folder for what to do once a board is chosen.
+#
+# Fill in each PIN_XX by looking up your board's official pin
+# assignment table (usually in the board's user manual, or provided as
+# a starter .qsf by the board vendor - e.g. Intel/Terasic provide these
+# for DE1-SoC, DE10-Lite, etc. - often easier to copy the relevant
+# entries from that starter file than to type pin numbers by hand).
+
+# ---------------- Clock and reset ----------------
+set_location_assignment PIN_XX -to clk
+set_location_assignment PIN_XX -to rst_n
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to clk
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to rst_n
+
+# NOTE: clk here must already be the ~25 MHz VGA pixel clock, not the
+# board's raw oscillator (commonly 50 MHz). This design does not yet
+# include a PLL to derive that - see the README's "What's left" section.
+# Until a PLL is added, either feed a pre-divided clock in, or note this
+# design will run 2x too fast if a raw 50 MHz clock is used directly.
+
+# ---------------- VGA output ----------------
+set_location_assignment PIN_XX -to vga_hsync
+set_location_assignment PIN_XX -to vga_vsync
+set_location_assignment PIN_XX -to vga_red[0]
+set_location_assignment PIN_XX -to vga_red[1]
+set_location_assignment PIN_XX -to vga_red[2]
+set_location_assignment PIN_XX -to vga_red[3]
+set_location_assignment PIN_XX -to vga_green[0]
+set_location_assignment PIN_XX -to vga_green[1]
+set_location_assignment PIN_XX -to vga_green[2]
+set_location_assignment PIN_XX -to vga_green[3]
+set_location_assignment PIN_XX -to vga_blue[0]
+set_location_assignment PIN_XX -to vga_blue[1]
+set_location_assignment PIN_XX -to vga_blue[2]
+set_location_assignment PIN_XX -to vga_blue[3]
+
+# ---------------- PS/2 keyboard input ----------------
+set_location_assignment PIN_XX -to ps2_clk
+set_location_assignment PIN_XX -to ps2_data
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to ps2_clk
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to ps2_data
+
+# NOTE: PS/2 lines are open-collector with external pull-ups on real
+# hardware. Most Terasic/Intel dev boards wire the PS/2 port with
+# pull-ups already built in - check your board's schematic before
+# assuming this, since driving these pins without pull-ups (or with the
+# wrong I/O standard) won't work correctly even if the pin numbers are
+# right.
