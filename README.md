@@ -1,8 +1,8 @@
 # RISC-V CPU & Hardware Maze Solver
 
-I started this project to actually learn digital design instead of just reading about it — I'm a first-year Electrical and Computer Engineering student and wanted something hands-on to understand how a CPU really works at the RTL level, and eventually build toward FPGA/ASIC design work. It began as a single-cycle RISC-V CPU, and once that was working I wanted to build something more interesting on top of it, which turned into a hardware maze solver with a live VGA display and keyboard input.
+This project was started to learn digital design through a hands-on project alongside doing courses/learning platforms like nand2Tetris and HDLBits. The goal was to understand how a CPU really works at the RTL level, and eventually build toward FPGA/ASIC design work. It began as a single-cycle RISC-V CPU, and once that was working I wanted to build something more interesting on top of it, which turned into a hardware maze solver with a live VGA display and keyboard input.
 
-Everything here runs in simulation (Icarus Verilog) — I don't have an FPGA board yet, so nothing has been synthesized or run on real hardware. A Digilent Nexys A7-100T is on the way, and `constraints/` has pin assignments already prepared for it.
+Everything here runs in simulation (Icarus Verilog). I don't have an FPGA board yet, so nothing has been synthesized or run on real hardware. A Digilent Nexys A7-100T will be ordered soon, and `constraints/` has pin assignments already prepared for it.
 
 ## What's in here
 
@@ -23,7 +23,7 @@ A classic single-cycle datapath — one instruction fetches, decodes, executes, 
 - Control flow: `beq bne blt bge bltu bgeu jal jalr`
 - Upper immediate: `lui auipc`
 
-I left out `fence`, `ecall`/`ebreak`, CSR instructions, and byte/halfword loads/stores — the goal was a fully working, fully verified subset rather than a larger instruction set with gaps in it.
+I left out `fence`, `ecall`/`ebreak`, CSR instructions, and byte/halfword loads/stores since the goal was a fully working, fully verified subset rather than a larger instruction set with gaps in it.
 
 There's a small custom assembler (`sw/assembler.py`) so test programs can be written in readable assembly instead of hand-encoded hex, and a handful of test programs (arithmetic, a loop with branches, memory load/store, jumps, some deliberately tricky edge cases, and a couple of small programs like a sort and a simple simulation just to exercise the CPU on something closer to a real workload).
 
@@ -31,7 +31,7 @@ There's a small custom assembler (`sw/assembler.py`) so test programs can be wri
 
 `rtl/bfs/`
 
-Once the CPU worked, I wanted to build something that actually *does* something visible, so I built a hardware breadth-first search engine that solves mazes — a real FSM with a hardware queue and a grid-state memory, not a program running on the CPU. It's a separate piece of hardware in the same repo.
+Once the CPU worked, I wanted to build something that actually *does* something visible, so I built a hardware breadth-first search engine that solves mazes (a real FSM with a hardware queue and a grid-state memory, not a program running on the CPU). It's a separate piece of hardware in the same repo.
 
 - **`bfs_engine.sv`** — the search itself. Standard 4-directional BFS: enqueue the start cell, repeatedly dequeue a cell and check its neighbors, mark visited cells and record which direction leads back toward the start, then once the end cell is found, backtrack from end to start to mark the final path.
 - **`maze_loader.sv`** — reads a maze definition from a text file (one wall bit per line) and loads it into the BFS engine at startup.
@@ -60,10 +60,10 @@ Current state: 700+ individual checks, 0 failures, from a clean rebuild.
 
 ## Things that actually tripped me up
 
-A few real bugs worth mentioning, since figuring them out taught me more than the parts that worked on the first try:
+A few bugs worth mentioning, since figuring them out helped teach me more than the parts that worked on the first try:
 
-- **An initialization bug that looked fine but wasn't.** I declared some signals in the CPU using `logic x = some_expression;`, which in SystemVerilog only runs once at time zero — it's not a continuous connection. Every downstream signal quietly used a stale value forever. The regression suite caught it immediately (everything read zero), and the fix was switching to explicit `assign` statements.
-- **A testbench race condition.** In a few of the PS/2 testbenches, I was driving stimulus signals with blocking assignments right after a clock edge — but since the actual hardware module was *also* reacting to that same edge, there was a real race depending on simulator scheduling, and every test failed in a confusing way. The fix is standard practice once you know it: drive testbench stimulus with nonblocking assignments so there's no ambiguity about which cycle's value the hardware sees.
+- **An initialization bug that looked fine but wasn't.** I declared some signals in the CPU using `logic x = some_expression;`, which in SystemVerilog only runs once at time zero (it's not a continuous connection). Every downstream signal quietly used a stale value forever. The regression suite caught it immediately (everything read zero), and the fix was switching to explicit `assign` statements.
+- **A testbench race condition.** In a few of the PS/2 testbenches, I was driving stimulus signals with blocking assignments right after a clock edge, but since the actual hardware module was *also* reacting to that same edge, there was a real race depending on simulator scheduling, and every test failed in a confusing way. The fix is standard practice once you know it: drive testbench stimulus with nonblocking assignments so there's no ambiguity about which cycle's value the hardware sees.
 - **Pipeline latency I didn't account for.** When I rewrote the pixel-to-cell coordinate logic to use counters instead of division (better for real FPGA timing), the new version was registered instead of combinational — meaning its output is naturally one cycle behind its input, which is completely normal for synchronous hardware. My testbench's reference calculation didn't account for that at first, so it looked broken when the actual logic was correct.
 
 ## Building and running
@@ -83,7 +83,7 @@ There are a few more granular targets in the Makefile (`test-vga`, `test-ps2`, `
 
 ## What's next
 
-The design is complete in simulation. What's left is genuinely hardware-dependent:
+The design is complete in simulation. What's left is just hardware-dependent:
 
 1. **Get the Nexys A7-100T set up.** `constraints/nexys_a7_100t.xdc` has real pin numbers for this board (VGA, PS/2, clock, reset), and `rtl/bfs/nexys_a7_top.sv` is the board-level wrapper — it still needs a Vivado Clocking Wizard IP generated to convert the board's 100 MHz oscillator down to the ~25 MHz this design assumes, which can't be done outside of Vivado itself.
 2. Actually synthesize it, check timing closure and resource usage, and see if it works on a real monitor and keyboard.
