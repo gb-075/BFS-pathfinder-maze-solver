@@ -24,11 +24,12 @@ this board.
   clock+data signals to the FPGA. `ps2_receiver.sv` works completely
   unmodified.
 - **Vivado is AMD's current FPGA toolchain** (AMD acquired Xilinx in
-  2022), directly relevant experience for that specific target company.
-- Alternatives considered and ruled out: the cheaper Basys 3 has VGA but
+  2022), so it's good experience with a tool that's actually in use in
+  industry right now.
+- Alternatives I looked at and ruled out: the cheaper Basys 3 has VGA but
   no keyboard input capability at all; the DE10-Lite (Intel/Quartus) has
   neither VGA nor PS/2 built in and would need extra adapter hardware -
-  in both cases, the "cheaper" price is misleading once you account for
+  in both cases, the lower price tag is misleading once you account for
   what's actually needed for this design.
 
 ## What's left before this actually runs on the board
