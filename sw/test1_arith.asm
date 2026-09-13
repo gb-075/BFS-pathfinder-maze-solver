@@ -1,8 +1,7 @@
-# test1_arith.asm
-# Exercises R-type and I-type ALU instructions.
-# Expected final register values (checked by tb_cpu.sv):
+# test1_arith.asm - basic ALU instructions
+# expected values:
 #   x5  = 15   (5 + 10)
-#   x6  = -5   (5 - 10)          -> 0xFFFFFFFB
+#   x6  = -5   (5 - 10)          -> 0xFFFFFFFB as an unsigned 32 bit number
 #   x7  = 0    (0xF0 & 0x0F)
 #   x8  = 0xFF (0xF0 | 0x0F)
 #   x9  = 1    (5 < 10 signed)

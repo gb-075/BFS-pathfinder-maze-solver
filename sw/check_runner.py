@@ -1,13 +1,6 @@
 #!/usr/bin/env python3
 """
-Automated regression runner for the RV32I-subset core.
-
-For each test program, this:
-  1. Assembles the .asm to .hex
-  2. Runs the Icarus Verilog simulation
-  3. Parses the final register dump out of the simulator's stdout
-  4. Compares specified registers against expected values
-  5. Reports PASS/FAIL per test, with a summary at the end
+Runs every CPU test program and checks the results automatically.
 
 Run from the project root: python3 sw/check_runner.py
 """
@@ -18,7 +11,6 @@ import os
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# Each entry: (test_name, cycles_to_run, {reg_num: expected_value})
 TESTS = [
     ("test1_arith", 20, {
         1: 5, 2: 10, 3: 0xf0, 4: 0x0f,
@@ -33,29 +25,26 @@ TESTS = [
     }),
     ("test4_jump", 15, {
         1: 4, 2: 42, 3: 0x14, 5: 0x12345000, 6: 7,
-        9: 0,   # must be 0: proves instr after jal was skipped
-        11: 0,  # must be 0: proves instr after jalr was skipped
+        9: 0,
+        11: 0,
     }),
     ("test5_edge_cases", 15, {
-        0: 0,             # x0 write must be silently discarded
-        5: 1,             # slt (signed):   -1 < 1  -> true
-        6: 0,             # sltu (unsigned): 0xFFFFFFFF < 1 -> false
-        7: 0xfffffffc,    # sra(-8, 1) = -4, sign-extended
-        8: 0x7ffffffc,    # srl(-8, 1), zero-filled top bit
+        0: 0,
+        5: 1,
+        6: 0,
+        7: 0xfffffffc,
+        8: 0x7ffffffc,
     }),
 ]
 
-# Demos are checked against expected CONSOLE output (a sequence of
-# printed values) rather than final register values.
-# Each entry: (demo_name, cycles_to_run, [expected console values in order])
 DEMOS = [
     ("demo_fibonacci", 70, [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]),
     ("demo_bubblesort", 250, [1, 2, 3, 4, 5]),
     ("demo_gameoflife", 30000, [
-        0, 5, 6, 2, 0, 0, 0, 0,      # generation 0 (initial glider)
-        0, 4, 5, 6, 0, 0, 0, 0,      # generation 1
-        0, 2, 12, 6, 0, 0, 0, 0,     # generation 2
-        0, 4, 8, 14, 0, 0, 0, 0,     # generation 3
+        0, 5, 6, 2, 0, 0, 0, 0,
+        0, 4, 5, 6, 0, 0, 0, 0,
+        0, 2, 12, 6, 0, 0, 0, 0,
+        0, 4, 8, 14, 0, 0, 0, 0,
     ]),
 ]
 
@@ -64,7 +53,6 @@ CONSOLE_RE = re.compile(r'^CONSOLE:\s+(-?\d+)\s+\(0x([0-9a-fA-F]+)\)')
 
 
 def assemble_and_simulate(name, cycles):
-    """Assemble a .asm to .hex and run it in simulation. Returns stdout, or None on failure."""
     asm = os.path.join(ROOT, "sw", f"{name}.asm")
     hexf = os.path.join(ROOT, "sw", f"{name}.hex")
 

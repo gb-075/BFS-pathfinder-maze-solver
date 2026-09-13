@@ -1,19 +1,5 @@
 // control_unit.sv
-// Decodes the instruction opcode/funct3/funct7 fields into control
-// signals for the rest of the single-cycle datapath.
-//
-// Supported opcodes (standard RV32I encodings):
-//   R-type ALU   : 0110011
-//   I-type ALU   : 0010011
-//   LOAD (LW)    : 0000011
-//   STORE (SW)   : 0100011
-//   BRANCH       : 1100011
-//   JAL          : 1101111
-//   JALR         : 1100111
-//   LUI          : 0110111
-//   AUIPC        : 0010111
-//
-// Not implemented: FENCE, ECALL, EBREAK, CSR instructions.
+// decodes opcode/funct3/funct7 into control signals for the datapath
 
 `timescale 1ns/1ps
 
@@ -22,9 +8,9 @@ import imm_pkg::*;
 
 package ctrl_pkg;
     typedef enum logic [1:0] {
-        WB_ALU  = 2'b00,  // writeback = ALU result
-        WB_MEM  = 2'b01,  // writeback = data memory read
-        WB_PC4  = 2'b10   // writeback = PC + 4  (JAL / JALR)
+        WB_ALU  = 2'b00,
+        WB_MEM  = 2'b01,
+        WB_PC4  = 2'b10
     } wb_sel_t;
 
     localparam logic [6:0] OPC_RTYPE  = 7'b0110011;
@@ -43,10 +29,10 @@ import ctrl_pkg::*;
 module control_unit (
     input  logic [6:0]  opcode,
     input  logic [2:0]  funct3,
-    input  logic        funct7_b5,   // instr[30]
+    input  logic        funct7_b5,
 
     output alu_ctrl_t   alu_ctrl,
-    output logic        alu_src_b,   // 0 = rs2, 1 = immediate
+    output logic        alu_src_b,
     output imm_type_t   imm_type,
     output logic        reg_write,
     output logic        mem_read,
@@ -55,36 +41,10 @@ module control_unit (
     output logic        is_branch,
     output logic        is_jal,
     output logic        is_jalr,
-    output logic        alu_a_is_pc  // 1 => ALU operand A = PC (AUIPC)
+    output logic        alu_a_is_pc
 );
 
-    // Shared ALU decode for R-type and I-type-ALU instructions.
-    function automatic alu_ctrl_t decode_alu_op(
-        input logic [2:0] f3,
-        input logic       f7b5,
-        input logic       is_rtype
-    );
-        case (f3)
-            3'b000: begin
-                if (is_rtype && f7b5) decode_alu_op = ALU_SUB;
-                else                  decode_alu_op = ALU_ADD;
-            end
-            3'b001:  decode_alu_op = ALU_SLL;
-            3'b010:  decode_alu_op = ALU_SLT;
-            3'b011:  decode_alu_op = ALU_SLTU;
-            3'b100:  decode_alu_op = ALU_XOR;
-            3'b101: begin
-                if (f7b5) decode_alu_op = ALU_SRA;
-                else      decode_alu_op = ALU_SRL;
-            end
-            3'b110:  decode_alu_op = ALU_OR;
-            3'b111:  decode_alu_op = ALU_AND;
-            default: decode_alu_op = ALU_ADD;
-        endcase
-    endfunction
-
     always_comb begin
-        // Safe defaults (NOP-like / no side effects)
         alu_ctrl     = ALU_ADD;
         alu_src_b    = 1'b0;
         imm_type     = IMM_I;
@@ -100,25 +60,45 @@ module control_unit (
         case (opcode)
 
             OPC_RTYPE: begin
-                alu_ctrl  = decode_alu_op(funct3, funct7_b5, 1'b1);
-                alu_src_b = 1'b0;      // operand B = rs2
+                // add/sub and srl/sra share funct3, funct7 bit 5 tells them apart
+                case (funct3)
+                    3'b000:  if (funct7_b5) alu_ctrl = ALU_SUB; else alu_ctrl = ALU_ADD;
+                    3'b001:  alu_ctrl = ALU_SLL;
+                    3'b010:  alu_ctrl = ALU_SLT;
+                    3'b011:  alu_ctrl = ALU_SLTU;
+                    3'b100:  alu_ctrl = ALU_XOR;
+                    3'b101:  if (funct7_b5) alu_ctrl = ALU_SRA; else alu_ctrl = ALU_SRL;
+                    3'b110:  alu_ctrl = ALU_OR;
+                    3'b111:  alu_ctrl = ALU_AND;
+                    default: alu_ctrl = ALU_ADD;
+                endcase
+                alu_src_b = 1'b0;
                 reg_write = 1'b1;
                 wb_sel    = WB_ALU;
             end
 
             OPC_ITYPE: begin
-                // SLLI/SRLI/SRAI use funct7_b5 (instr[30]) the same way
-                // shift amount is imm[4:0], handled naturally since ALU
-                // uses b[4:0] as shift amount.
-                alu_ctrl  = decode_alu_op(funct3, funct7_b5, 1'b0);
-                alu_src_b = 1'b1;      // operand B = immediate
+                // same funct3 table as above but addi doesn't care about funct7
+                // (only slli/srli/srai actually use that bit, for the shift type)
+                case (funct3)
+                    3'b000:  alu_ctrl = ALU_ADD;
+                    3'b001:  alu_ctrl = ALU_SLL;
+                    3'b010:  alu_ctrl = ALU_SLT;
+                    3'b011:  alu_ctrl = ALU_SLTU;
+                    3'b100:  alu_ctrl = ALU_XOR;
+                    3'b101:  if (funct7_b5) alu_ctrl = ALU_SRA; else alu_ctrl = ALU_SRL;
+                    3'b110:  alu_ctrl = ALU_OR;
+                    3'b111:  alu_ctrl = ALU_AND;
+                    default: alu_ctrl = ALU_ADD;
+                endcase
+                alu_src_b = 1'b1;
                 imm_type  = IMM_I;
                 reg_write = 1'b1;
                 wb_sel    = WB_ALU;
             end
 
-            OPC_LOAD: begin // LW only
-                alu_ctrl  = ALU_ADD;   // address = rs1 + imm
+            OPC_LOAD: begin
+                alu_ctrl  = ALU_ADD;
                 alu_src_b = 1'b1;
                 imm_type  = IMM_I;
                 mem_read  = 1'b1;
@@ -126,20 +106,18 @@ module control_unit (
                 wb_sel    = WB_MEM;
             end
 
-            OPC_STORE: begin // SW only
-                alu_ctrl  = ALU_ADD;   // address = rs1 + imm
+            OPC_STORE: begin
+                alu_ctrl  = ALU_ADD;
                 alu_src_b = 1'b1;
                 imm_type  = IMM_S;
                 mem_write = 1'b1;
             end
 
             OPC_BRANCH: begin
-                // funct3[2]=0 -> equality test (ALU_SUB, use zero flag)
-                // funct3[2]=1 -> less-than test (ALU_SLT / ALU_SLTU)
                 if (!funct3[2])      alu_ctrl = ALU_SUB;
                 else if (!funct3[1]) alu_ctrl = ALU_SLT;
                 else                 alu_ctrl = ALU_SLTU;
-                alu_src_b = 1'b0;      // operand B = rs2
+                alu_src_b = 1'b0;
                 imm_type  = IMM_B;
                 is_branch = 1'b1;
             end
@@ -152,7 +130,7 @@ module control_unit (
             end
 
             OPC_JALR: begin
-                alu_ctrl  = ALU_ADD;   // target = rs1 + imm
+                alu_ctrl  = ALU_ADD;
                 alu_src_b = 1'b1;
                 imm_type  = IMM_I;
                 reg_write = 1'b1;
@@ -161,7 +139,7 @@ module control_unit (
             end
 
             OPC_LUI: begin
-                alu_ctrl  = ALU_PASSB; // result = imm
+                alu_ctrl  = ALU_PASSB;
                 alu_src_b = 1'b1;
                 imm_type  = IMM_U;
                 reg_write = 1'b1;
@@ -169,7 +147,7 @@ module control_unit (
             end
 
             OPC_AUIPC: begin
-                alu_ctrl    = ALU_ADD; // result = PC + imm
+                alu_ctrl    = ALU_ADD;
                 alu_src_b   = 1'b1;
                 imm_type    = IMM_U;
                 alu_a_is_pc = 1'b1;
@@ -177,7 +155,7 @@ module control_unit (
                 wb_sel      = WB_ALU;
             end
 
-            default: ; // unsupported opcode - defaults above are inert
+            default: ;
         endcase
     end
 

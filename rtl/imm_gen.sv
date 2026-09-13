@@ -1,6 +1,4 @@
-// imm_gen.sv
-// Extracts and sign-extends the immediate field from an instruction,
-// based on its type (determined by opcode).
+// imm_gen.sv - pulls the immediate out of the instruction and sign extends it
 
 `timescale 1ns/1ps
 
@@ -25,17 +23,12 @@ module imm_gen (
     always_comb begin
         case (imm_type)
             IMM_I: imm_out = {{20{instr[31]}}, instr[31:20]};
-
             IMM_S: imm_out = {{20{instr[31]}}, instr[31:25], instr[11:7]};
-
             IMM_B: imm_out = {{19{instr[31]}}, instr[31], instr[7],
                                instr[30:25], instr[11:8], 1'b0};
-
             IMM_U: imm_out = {instr[31:12], 12'b0};
-
             IMM_J: imm_out = {{11{instr[31]}}, instr[31], instr[19:12],
                                instr[20], instr[30:21], 1'b0};
-
             default: imm_out = 32'hxxxxxxxx;
         endcase
     end

@@ -1,11 +1,6 @@
-# test3_memory.asm
-# Store a value to memory, then load it back into a different register,
-# plus store/load at a nonzero offset to check address computation.
-#
-# NOTE: addi's immediate is a 12-bit SIGNED field (-2048..2047), same as
-# real RV32I, so test values below are chosen to fit that range.
-#
-# Expected final register values:
+# test3_memory.asm - lw/sw round trip, plus a nonzero offset
+# note: addi immediate is 12-bit signed (-2048..2047), values below fit that
+# expected values:
 #   x7 = 0x123   (291, stored then loaded back from addr 0)
 #   x8 = 0x2AB   (683, stored then loaded back from addr 20)
 

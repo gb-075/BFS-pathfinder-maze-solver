@@ -1,17 +1,6 @@
-# demo_gameoflife.asm
-# Conway's Game of Life on an 8x8 toroidal (wraparound) grid.
-# Runs a "glider" pattern for 4 generations and prints each row as a
-# packed 8-bit value (bit c = cell (r,c)) via the memory-mapped console,
-# so the evolving grid can be rendered as ASCII art by a small host-side
-# script (sw/render_gol.py) or read directly as bit patterns.
-#
-# This is a genuine subroutine-call program: do_generation is called 4
-# times from main (alternating between two grid buffers), and calls
-# neighbor_sum 64 times internally (once per cell). Since do_generation
-# itself is called by main AND calls neighbor_sum, its own return address
-# must be saved before making nested calls - handled here by copying ra
-# (x1) into a dedicated saved register (x20) on entry, since this design
-# only ever nests one level deep and doesn't need a real stack.
+# demo_gameoflife.asm - Game of Life, 8x8 wraparound grid, glider pattern,
+# 4 generations, prints each row as packed bits. do_generation calls
+# neighbor_sum as a nested subroutine (ra saved to x20 since it's not a leaf call).
 #
 # Register allocation:
 #   x1        = ra (return address, standard RISC-V convention)

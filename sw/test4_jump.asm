@@ -1,11 +1,9 @@
-# test4_jump.asm
-# Exercises JAL, JALR, LUI, AUIPC.
-#
-# Expected final register values:
+# test4_jump.asm - jal, jalr, lui, auipc
+# expected values:
 #   x2 = 42            (only reached via the jal target)
 #   x5 = 0x12345000    (lui)
 #   x6 = 7             (only reached via the jalr target, using x0 base)
-#   x1, x3 hold return addresses (not checked exactly, just sanity values)
+#   x1, x3 hold return addresses (didn't bother checking these exactly, just sanity values)
 
 jal  x1, target        # jump to 'target', save return addr in x1
 addi x9, x0, 0xDEA      # SKIPPED: not on the taken path

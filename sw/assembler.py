@@ -1,27 +1,8 @@
 #!/usr/bin/env python3
 """
-Minimal assembler for the RV32I subset implemented by this core.
-
-Supported instructions:
-  R-type : add sub and or xor sll srl sra slt sltu
-  I-type : addi andi ori xori slti sltiu slli srli srai lw jalr
-  S-type : sw
-  B-type : beq bne blt bge bltu bgeu
-  J-type : jal
-  U-type : lui auipc
-
-Syntax (one instruction per line, '#' starts a comment):
-  add  rd, rs1, rs2
-  addi rd, rs1, imm
-  lw   rd, imm(rs1)
-  sw   rs2, imm(rs1)
-  beq  rs1, rs2, label
-  jal  rd, label
-  lui  rd, imm
-  label:
-
-Registers may be written as x0-x31 or the ABI names (zero, ra, sp, ...).
-Output: one 32-bit instruction per line, in hex, for $readmemh.
+Small assembler for the RV32I subset this CPU supports. Not a real
+general RISC-V assembler - just enough to write test programs without
+hand-encoding hex.
 
 Usage: python3 assembler.py program.asm program.hex
 """
@@ -136,7 +117,7 @@ def encode_u(rd, imm20, opcode):
 
 
 def first_pass(lines):
-    """Compute label -> address map (word count * 4)."""
+    # scan once to find label addresses before actually encoding anything
     labels = {}
     addr = 0
     for line in lines:
@@ -194,8 +175,6 @@ def assemble(lines):
             rd = reg(args[0])
             m = re.match(r'(-?\w+)\((\w+)\)', args[1])
             imm_tok, rs1 = m.group(1), reg(m.group(2))
-            # If a label is given, resolve to its absolute address. This
-            # only makes sense when rs1 is x0 (address = 0 + label_addr).
             imm12 = int(imm_tok, 0) if imm_tok not in labels else labels[imm_tok]
             word = encode_i(0b1100111, 0b000, rd, rs1, imm12)
 
@@ -224,7 +203,7 @@ def assemble(lines):
             word = encode_u(rd, imm_val(args[1]), 0b0010111)
 
         elif mnemonic == "nop":
-            word = 0x00000013  # addi x0, x0, 0
+            word = 0x00000013
 
         else:
             raise ValueError(f"Unsupported instruction: {mnemonic}")

@@ -1,19 +1,16 @@
 #!/usr/bin/env python3
 """
-Generates a maze using randomized recursive backtracker (guarantees a
-real maze: exactly one path between any two open cells, with genuine
-dead ends), on a "doubled grid" so it maps directly onto our BFS
-engine's cell model (where a cell is either fully wall or fully open,
-rather than walls existing between cells).
+Generates the maze the hardware solves - randomized recursive
+backtracker, a standard maze generation algorithm, guarantees exactly
+one path between any two cells.
 
-ROOMS_WIDE x ROOMS_TALL "rooms" become a (2*ROOMS_WIDE-1) x
-(2*ROOMS_TALL-1) grid, where even (row,col) are always-open room cells
-and odd row/col are "connector" cells that are open only if that
-passage was carved.
+Builds it on a doubled grid so it maps onto bfs_engine's cell model
+(cell is either fully wall or fully open, no separate wall-between-cells
+concept).
 """
 import random
 
-random.seed(42)  # deterministic, reproducible
+random.seed(42)  # fixed seed, reproducible
 
 ROOMS_WIDE = 10
 ROOMS_TALL = 8

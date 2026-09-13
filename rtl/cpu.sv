@@ -1,8 +1,4 @@
-// cpu.sv
-// Single-cycle RV32I-subset CPU datapath.
-// Instructions supported: R-type ALU ops, I-type ALU ops (incl. shifts),
-// LW, SW, BEQ/BNE/BLT/BGE/BLTU/BGEU, JAL, JALR, LUI, AUIPC.
-// Not supported: FENCE, ECALL/EBREAK, CSR instructions, byte/half loads.
+// cpu.sv - top level, wires everything together into a single-cycle CPU
 
 `timescale 1ns/1ps
 
@@ -14,23 +10,19 @@ module cpu (
     input  logic clk,
     input  logic rst_n,
 
-    // Debug/verification visibility
     output logic [31:0] pc_out,
     output logic [31:0] instr_out
 );
 
-    // ---------------- Program Counter ----------------
-    logic [31:0] pc, pc_next, pc_plus4;
+    logic [31:0] pc, pc_next;
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) pc <= 32'd0;
         else        pc <= pc_next;
     end
 
-    assign pc_plus4 = pc + 32'd4;
-    assign pc_out   = pc;
+    assign pc_out = pc;
 
-    // ---------------- Fetch ----------------
     logic [31:0] instr;
 
     instr_mem u_imem (
@@ -40,10 +32,9 @@ module cpu (
 
     assign instr_out = instr;
 
-    // ---------------- Decode fields ----------------
-    // NOTE: these must be continuous (assign), not initializer syntax
-    // ("logic x = ..."), which in SystemVerilog only evaluates once at
-    // time 0 and would NOT track instr as it changes each cycle.
+    // NOTE: these have to be "assign", not "logic x = instr[...]" -
+    // learned that one the hard way (only runs once at time 0, doesn't
+    // stay connected to instr as it changes)
     logic [6:0] opcode;
     logic [4:0] rd_addr;
     logic [2:0] funct3;
@@ -58,7 +49,6 @@ module cpu (
     assign rs2_addr  = instr[24:20];
     assign funct7_b5 = instr[30];
 
-    // ---------------- Control ----------------
     alu_ctrl_t alu_ctrl;
     logic      alu_src_b;
     imm_type_t imm_type;
@@ -88,7 +78,6 @@ module cpu (
         .alu_a_is_pc (alu_a_is_pc)
     );
 
-    // ---------------- Immediate ----------------
     logic [31:0] imm;
 
     imm_gen u_immgen (
@@ -97,7 +86,6 @@ module cpu (
         .imm_out  (imm)
     );
 
-    // ---------------- Register File ----------------
     logic [31:0] rs1_data, rs2_data, rd_data;
 
     regfile u_regfile (
@@ -112,7 +100,6 @@ module cpu (
         .rs2_data (rs2_data)
     );
 
-    // ---------------- ALU ----------------
     logic [31:0] alu_a, alu_b, alu_result;
     logic        alu_zero;
 
@@ -127,7 +114,6 @@ module cpu (
         .zero     (alu_zero)
     );
 
-    // ---------------- Data Memory ----------------
     logic [31:0] mem_rdata;
 
     data_mem u_dmem (
@@ -139,53 +125,42 @@ module cpu (
         .rdata     (mem_rdata)
     );
 
-    // ---------------- Writeback mux ----------------
     always_comb begin
-        case (wb_sel)
-            WB_ALU: rd_data = alu_result;
-            WB_MEM: rd_data = mem_rdata;
-            WB_PC4: rd_data = pc_plus4;
-            default: rd_data = alu_result;
-        endcase
+        if (wb_sel == WB_ALU) begin
+            rd_data = alu_result;
+        end else if (wb_sel == WB_MEM) begin
+            rd_data = mem_rdata;
+        end else if (wb_sel == WB_PC4) begin
+            rd_data = pc + 32'd4;
+        end else begin
+            rd_data = alu_result;
+        end
     end
 
-    // ---------------- Branch resolution ----------------
-    // funct3[2]=0 -> equality (use ALU_SUB + zero flag)
-    // funct3[2]=1 -> less-than (use ALU_SLT/ALU_SLTU + result bit0)
-    // funct3[0]   -> inverts the base comparison (BNE/BGE/BGEU)
+    // reuse the ALU for branch compares instead of a separate comparator -
+    // beq/bne use subtract+zero, blt/bge/bltu/bgeu use slt/sltu
     logic branch_base, branch_taken;
 
     assign branch_base  = funct3[2] ? alu_result[0] : alu_zero;
     assign branch_taken = is_branch && (branch_base ^ funct3[0]);
 
-    // ---------------- Next PC ----------------
     always_comb begin
-        if (branch_taken)
+        if (branch_taken) begin
             pc_next = pc + imm;
-        else if (is_jal)
+        end else if (is_jal) begin
             pc_next = pc + imm;
-        else if (is_jalr)
+        end else if (is_jalr) begin
             pc_next = (rs1_data + imm) & 32'hFFFFFFFE;
-        else
-            pc_next = pc_plus4;
+        end else begin
+            pc_next = pc + 32'd4;
+        end
     end
 
-    // ---------------- Assertions (design-internal invariants) ----------------
-    // Immediate assertions checking properties that should ALWAYS hold
-    // regardless of which program is running, independent of the directed
-    // register checks in the testbench. (Concurrent `assert property`/SVA
-    // syntax was tried first but Icarus Verilog's support for it is
-    // incomplete; immediate assertions inside always_ff are fully
-    // supported and check the same invariants.)
     `ifndef SYNTHESIS
         always_ff @(posedge clk) begin
             if (rst_n) begin
-                // x0 must always read as zero.
                 assert (rs1_addr != 5'd0 || rs1_data == 32'd0)
                     else $error("ASSERTION FAILED: x0 read as nonzero (rs1) at t=%0t", $time);
-
-                // PC must always be word-aligned - true for this ISA
-                // subset since we don't support compressed instructions.
                 assert (pc[1:0] == 2'b00)
                     else $error("ASSERTION FAILED: PC misaligned: 0x%08h at t=%0t", pc, $time);
             end

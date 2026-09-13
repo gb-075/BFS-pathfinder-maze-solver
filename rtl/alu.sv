@@ -1,8 +1,4 @@
-// alu.sv
-// Combinational ALU. alu_ctrl selects the operation.
-// Encoding chosen arbitrarily (not tied to RISC-V funct fields) -
-// control_unit.sv is responsible for translating funct3/funct7/opcode
-// into these alu_ctrl codes.
+// alu.sv - does the actual math/logic ops for the CPU
 
 `timescale 1ns/1ps
 
@@ -18,7 +14,7 @@ package alu_pkg;
         ALU_SRA  = 4'b0111,
         ALU_SLT  = 4'b1000,
         ALU_SLTU = 4'b1001,
-        ALU_PASSB= 4'b1010  // pass operand B through (used for LUI)
+        ALU_PASSB= 4'b1010
     } alu_ctrl_t;
 endpackage
 
@@ -32,6 +28,8 @@ module alu (
     output logic        zero
 );
 
+    logic [31:0] shift_result; // just a scratch reg for the shift cases
+
     always_comb begin
         case (alu_ctrl)
             ALU_ADD:   result = a + b;
@@ -39,9 +37,15 @@ module alu (
             ALU_AND:   result = a & b;
             ALU_OR:    result = a | b;
             ALU_XOR:   result = a ^ b;
-            ALU_SLL:   result = a << b[4:0];
-            ALU_SRL:   result = a >> b[4:0];
-            ALU_SRA:   result = $signed(a) >>> b[4:0];
+            ALU_SLL: begin
+                shift_result = a << b[4:0];
+                result = shift_result;
+            end
+            ALU_SRL: begin
+                shift_result = a >> b[4:0];
+                result = shift_result;
+            end
+            ALU_SRA:   result = $signed(a) >>> b[4:0]; // needs $signed or it does a logical shift instead
             ALU_SLT:   result = ($signed(a) < $signed(b)) ? 32'd1 : 32'd0;
             ALU_SLTU:  result = (a < b) ? 32'd1 : 32'd0;
             ALU_PASSB: result = b;

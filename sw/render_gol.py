@@ -1,15 +1,7 @@
 #!/usr/bin/env python3
 """
 Renders the Game of Life demo's console output as ASCII art.
-
-The core prints one packed byte per row (bit c = cell (r,c) alive/dead).
-This script runs the simulation, captures those values, and renders each
-generation as an 8x8 grid using '#' for alive and '.' for dead - purely a
-host-side visualization step. All the actual computation (neighbor
-counting, the Life rule, grid state) happens on the simulated CPU; this
-script just decodes the printed bit patterns into something readable.
-
-Usage: python3 sw/render_gol.py
+Runs the sim, captures the printed bit patterns, decodes into a grid.
 """
 import subprocess
 import re

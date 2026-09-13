@@ -1,13 +1,4 @@
-// cursor_controller.sv
-// Takes decoded key events and maintains: a selection cursor (moved by
-// arrow keys, clamped to grid bounds), the current start/end cell
-// (updated by pressing '1'/'2' at the cursor's position), and a
-// single-cycle `trigger_search` pulse when Enter is pressed.
-//
-// Defaults on reset: cursor at (0,0), start at (0,0), end at the
-// bottom-right corner - the same fixed points used before keyboard
-// input existed, so the design still does something sensible with no
-// keyboard attached.
+// cursor_controller.sv - tracks selection cursor + start/end points from key events
 
 `timescale 1ns/1ps
 
@@ -42,7 +33,7 @@ module cursor_controller #(
             end_col    <= GRID_WIDTH - 1;
             trigger_search <= 1'b0;
         end else begin
-            trigger_search <= 1'b0; // default: single-cycle pulse only
+            trigger_search <= 1'b0;
 
             if (key_event_valid) begin
                 case (key_event)

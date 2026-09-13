@@ -3,12 +3,16 @@
 // runs the search (at full speed - SLOWDOWN_FACTOR=1 - for fast
 // simulation, unlike the real display instantiation which throttles
 // for visible animation), then samples specific pixels and checks
-// their color against the Python-computed ground truth path.
+// their color against the Python-computed ground truth path, and also
+// tests the interactive PS/2 flow (moving the cursor, picking a new end
+// point, and confirming the hardware re-solves correctly).
 //
 // Ground truth (from sw/bfs/gen_maze.py, GRID_WIDTH=19, GRID_HEIGHT=15):
 //   start=(0,0), end=(14,18)
 //   Path includes: (0,0) (2,2) (10,2) (14,10) (14,18)
 //   Known wall (not on path): (0,1)
+//   A shorter path from (0,0) to (2,2) is a prefix of the full path:
+//   (0,0)->(1,0)->(2,0)->(2,1)->(2,2)
 
 `timescale 1ns/1ps
 

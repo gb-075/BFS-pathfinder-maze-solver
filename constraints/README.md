@@ -47,6 +47,3 @@ this board.
 3. Run through synthesis and implementation, check the timing report for
    violations, and check resource utilization (LUTs/FFs/BRAM).
 4. Program the board and verify against a real monitor and keyboard.
-
-None of this could be done without knowing the actual board - that's
-now resolved, so this is the concrete remaining path to real hardware.

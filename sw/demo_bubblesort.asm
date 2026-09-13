@@ -1,8 +1,4 @@
-# demo_bubblesort.asm
-# Bubble sort, implemented directly in RV32I assembly and run on this
-# core. Sorts a 5-element array stored in data memory, then prints the
-# sorted result via the memory-mapped console.
-#
+# demo_bubblesort.asm - bubble sort on a 5-element array, prints sorted result
 # Initial array: [5, 3, 4, 1, 2]
 # Expected sorted output (printed in order): 1, 2, 3, 4, 5
 

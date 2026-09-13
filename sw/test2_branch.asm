@@ -1,10 +1,8 @@
-# test2_branch.asm
-# Loop that sums 1..5 using BNE, plus a BEQ that must NOT be taken.
-#
-# Expected final register values:
+# test2_branch.asm - loop with branches, plus a beq that should not be taken
+# expected values:
 #   x5 = 15      (1+2+3+4+5, built via a countdown loop)
 #   x6 = 0       (loop counter, ends at 0)
-#   x7 = 1       (proves the beq below was correctly NOT taken)
+#   x7 = 1       (proves the beq below correctly did NOT get taken)
 
 addi x5, x0, 0       # sum = 0
 addi x6, x0, 5       # counter = 5

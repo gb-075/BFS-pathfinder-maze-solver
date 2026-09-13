@@ -1,9 +1,4 @@
-# demo_fibonacci.asm
-# Computes the first 10 Fibonacci numbers and "prints" each one as it's
-# computed, by storing it to the memory-mapped console address (0xFFC).
-# This is the first program run on the core that produces visible,
-# human-readable output instead of just final register values.
-#
+# demo_fibonacci.asm - computes and prints first 10 Fibonacci numbers via console
 # Fibonacci: 0, 1, 1, 2, 3, 5, 8, 13, 21, 34
 
 addi x1, x0, 0        # a = fib(0) = 0

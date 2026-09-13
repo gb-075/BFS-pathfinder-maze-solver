@@ -1,11 +1,4 @@
-// tb_cpu.sv
-// Loads a program (via +HEXFILE plusarg), runs it for a fixed number of
-// cycles, dumps a VCD waveform, and checks a set of expected final
-// register values (via +CHECKFILE plusarg, see check_runner.py).
-//
-// This testbench peeks directly at the regfile's internal array for
-// verification purposes only - real designs would use a proper
-// interface, but for a single-cycle educational core this is fine.
+// tb_cpu.sv - loads a program, runs it, dumps final register values
 
 `timescale 1ns/1ps
 
@@ -29,30 +22,25 @@ module tb_cpu;
         .instr_out (instr_out)
     );
 
-    // Clock generation: 10ns period (100MHz notional)
     initial clk = 0;
     always #5 clk = ~clk;
 
-    // Reset
     initial begin
         rst_n = 0;
         repeat (2) @(posedge clk);
         rst_n = 1;
     end
 
-    // Waveform dump
     initial begin
         $dumpfile("waveform.vcd");
         $dumpvars(0, tb_cpu);
     end
 
-    // Instruction trace (helpful for debugging)
     always @(posedge clk) begin
         if (rst_n)
             $display("t=%0t  PC=0x%08h  instr=0x%08h", $time, pc_out, instr_out);
     end
 
-    // Run for a fixed number of cycles then dump all registers and finish
     initial begin
         @(posedge rst_n);
         repeat (num_cycles) @(posedge clk);

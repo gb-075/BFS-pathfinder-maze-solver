@@ -1,25 +1,5 @@
-// bfs_engine.sv
-// Hardware BFS (breadth-first search) maze solver.
-//
-// This is a genuine hardware accelerator implementing a graph
-// algorithm as an FSM + hardware queue + memory, NOT software running
-// on a CPU. Given a maze (wall/open per cell) and start/end
-// coordinates, it finds the shortest path (if one exists) using
-// standard 4-directional grid BFS, and reconstructs the actual path by
-// storing a "parent direction" per cell during the search, then
-// backtracking from the end cell once found.
-//
-// Per-cell state (packed into CELL_WIDTH bits each, stored in
-// grid_mem):
-//   bit 0     : wall        (1 = wall, 0 = open; loaded from maze ROM)
-//   bit 1     : visited     (set when a cell enters the BFS frontier)
-//   bits [4:2]: parent_dir  (0=none/start, 1=up, 2=down, 3=left, 4=right -
-//                            direction FROM this cell back toward its parent)
-//   bit 5     : on_path     (set during backtrack, for the final rendered path)
-//
-// FSM: IDLE -> INIT -> BFS_DEQUEUE -> BFS_NEIGHBOR (x4 directions) ->
-//      (loop back to BFS_DEQUEUE, or -> FOUND / NO_PATH) ->
-//      BACKTRACK -> DONE
+// bfs_engine.sv - hardware maze solver. FSM + queue + grid memory, does
+// actual BFS (breadth-first search) in hardware instead of running on the CPU
 
 `timescale 1ns/1ps
 
@@ -29,35 +9,25 @@ module bfs_engine #(
 ) (
     input  logic clk,
     input  logic rst_n,
-    input  logic start,                 // pulse to begin a new search
-    input  logic step_en,               // when 0, freeze FSM progress (once
-                                         // searching) - used to throttle how
-                                         // fast the search visibly animates
-                                         // on a real display; tie to 1'b1 for
-                                         // full-speed operation (e.g. in
-                                         // testbenches). Wall loading and
-                                         // `start` detection in S_IDLE are
-                                         // NOT gated by this - only the
-                                         // active search/backtrack states are.
+    input  logic start,
+
+    input  logic step_en, // throttles how fast the search visibly progresses
 
     input  logic [$clog2(GRID_WIDTH)-1:0]  start_col,
     input  logic [$clog2(GRID_HEIGHT)-1:0] start_row,
     input  logic [$clog2(GRID_WIDTH)-1:0]  end_col,
     input  logic [$clog2(GRID_HEIGHT)-1:0] end_row,
 
-    // Maze wall data: caller writes wall bits before pulsing `start`.
     input  logic                            wall_write_en,
     input  logic [$clog2(GRID_WIDTH*GRID_HEIGHT)-1:0] wall_write_addr,
     input  logic                            wall_write_data,
 
-    output logic done,                  // path search finished (found or not)
+    output logic done,
     output logic path_found,
     output logic busy,
 
-    // Read interface for a renderer (or a testbench) to inspect final
-    // cell state after `done`.
     input  logic [$clog2(GRID_WIDTH*GRID_HEIGHT)-1:0] read_addr,
-    output logic [5:0] read_cell                       // {on_path, parent_dir[2:0], visited, wall}
+    output logic [5:0] read_cell
 );
 
     localparam int NUM_CELLS  = GRID_WIDTH * GRID_HEIGHT;
@@ -65,19 +35,17 @@ module bfs_engine #(
     localparam int COL_BITS   = $clog2(GRID_WIDTH);
     localparam int ROW_BITS   = $clog2(GRID_HEIGHT);
 
-    // ---------------- Grid memory: 6 bits/cell ----------------
+    // grid_mem[cell] = {on_path, parent_dir[2:0], visited, wall}
     logic [5:0] grid_mem [0:NUM_CELLS-1];
 
     assign read_cell = grid_mem[read_addr];
 
-    // ---------------- BFS queue (FIFO of cell ids) ----------------
-    logic [CELL_BITS-1:0] queue_mem [0:NUM_CELLS-1]; // worst case every cell enqueued once
+    logic [CELL_BITS-1:0] queue_mem [0:NUM_CELLS-1];
     logic [CELL_BITS-1:0] q_head, q_tail;
     logic q_empty;
 
     assign q_empty = (q_head == q_tail);
 
-    // ---------------- FSM ----------------
     typedef enum logic [3:0] {
         S_IDLE, S_INIT, S_INIT_LOOP,
         S_DEQUEUE, S_CHECK_END,
@@ -99,7 +67,7 @@ module bfs_engine #(
     logic [ROW_BITS-1:0] bt_row;
     logic [CELL_BITS-1:0] bt_id;
 
-    logic [CELL_BITS-1:0] nid; // scratch: neighbor cell id, computed then used within the same cycle
+    logic [CELL_BITS-1:0] nid;
 
     assign start_id = start_row * GRID_WIDTH + start_col;
     assign end_id   = end_row   * GRID_WIDTH + end_col;
@@ -108,7 +76,6 @@ module bfs_engine #(
     assign done        = (state == S_DONE) || (state == S_NO_PATH);
     assign path_found  = (state == S_DONE);
 
-    // Direction encoding for parent_dir field
     localparam logic [2:0] DIR_NONE  = 3'd0;
     localparam logic [2:0] DIR_UP    = 3'd1;
     localparam logic [2:0] DIR_DOWN  = 3'd2;
@@ -123,11 +90,8 @@ module bfs_engine #(
             init_idx <= '0;
         end else begin
             if (state == S_IDLE) begin
-                // Wall loading and start-detection always respond
-                // immediately, regardless of step_en - throttling only
-                // applies once a search is actually in progress.
                 if (wall_write_en) begin
-                    grid_mem[wall_write_addr][0] <= wall_write_data; // wall bit
+                    grid_mem[wall_write_addr][0] <= wall_write_data;
                 end
                 if (start) begin
                     state <= S_INIT;
@@ -136,8 +100,6 @@ module bfs_engine #(
             end else if (step_en) begin
             case (state)
 
-                // Clear visited/parent/on_path bits for every cell
-                // (wall bits were already loaded and must be preserved).
                 S_INIT: begin
                     grid_mem[init_idx][5:1] <= 5'd0;
                     if (init_idx == NUM_CELLS - 1) begin
@@ -148,8 +110,7 @@ module bfs_engine #(
                 end
 
                 S_INIT_LOOP: begin
-                    // Enqueue the start cell.
-                    grid_mem[start_id][1] <= 1'b1; // visited
+                    grid_mem[start_id][1] <= 1'b1;
                     grid_mem[start_id][4:2] <= DIR_NONE;
                     queue_mem[0] <= start_id;
                     q_head <= '0;
@@ -180,18 +141,17 @@ module bfs_engine #(
                     end
                 end
 
-                // ---- Check each of 4 neighbors, one FSM state each ----
-                // IMPORTANT: parent_dir stores "which direction to move FROM
-                // this cell TO REACH its parent" (used during backtrack).
-                // So if we discover a neighbor by moving UP from cur, that
-                // neighbor's parent (cur) is BELOW it - so we store DIR_DOWN,
-                // not DIR_UP. Same inverted relationship for the other three.
+                // note: parent_dir on a discovered neighbor stores the
+                // direction BACK to its parent, so discovering by going
+                // UP means the parent is DOWN from the neighbor - got
+                // this backwards on the first attempt, caught it by
+                // tracing a small maze by hand
                 S_NEIGHBOR_UP: begin
                     if (cur_row != 0) begin
                         nid = (cur_row - 1) * GRID_WIDTH + cur_col;
-                        if (!grid_mem[nid][0] && !grid_mem[nid][1]) begin // open and unvisited
+                        if (!grid_mem[nid][0] && !grid_mem[nid][1]) begin
                             grid_mem[nid][1]   <= 1'b1;
-                            grid_mem[nid][4:2] <= DIR_DOWN; // parent is below this neighbor
+                            grid_mem[nid][4:2] <= DIR_DOWN;
                             queue_mem[q_tail]  <= nid;
                             q_tail <= q_tail + 1'b1;
                         end
@@ -204,7 +164,7 @@ module bfs_engine #(
                         nid = (cur_row + 1) * GRID_WIDTH + cur_col;
                         if (!grid_mem[nid][0] && !grid_mem[nid][1]) begin
                             grid_mem[nid][1]   <= 1'b1;
-                            grid_mem[nid][4:2] <= DIR_UP; // parent is above this neighbor
+                            grid_mem[nid][4:2] <= DIR_UP;
                             queue_mem[q_tail]  <= nid;
                             q_tail <= q_tail + 1'b1;
                         end
@@ -217,7 +177,7 @@ module bfs_engine #(
                         nid = cur_row * GRID_WIDTH + (cur_col - 1);
                         if (!grid_mem[nid][0] && !grid_mem[nid][1]) begin
                             grid_mem[nid][1]   <= 1'b1;
-                            grid_mem[nid][4:2] <= DIR_RIGHT; // parent is to the right
+                            grid_mem[nid][4:2] <= DIR_RIGHT;
                             queue_mem[q_tail]  <= nid;
                             q_tail <= q_tail + 1'b1;
                         end
@@ -230,7 +190,7 @@ module bfs_engine #(
                         nid = cur_row * GRID_WIDTH + (cur_col + 1);
                         if (!grid_mem[nid][0] && !grid_mem[nid][1]) begin
                             grid_mem[nid][1]   <= 1'b1;
-                            grid_mem[nid][4:2] <= DIR_LEFT; // parent is to the left
+                            grid_mem[nid][4:2] <= DIR_LEFT;
                             queue_mem[q_tail]  <= nid;
                             q_tail <= q_tail + 1'b1;
                         end
@@ -238,7 +198,6 @@ module bfs_engine #(
                     state <= S_DEQUEUE;
                 end
 
-                // ---- Backtrack from end cell to start, marking on_path ----
                 S_BACKTRACK_INIT: begin
                     bt_row <= end_row;
                     bt_col <= end_col;
@@ -247,7 +206,7 @@ module bfs_engine #(
                 end
 
                 S_BACKTRACK_STEP: begin
-                    grid_mem[bt_id][5] <= 1'b1; // mark on_path
+                    grid_mem[bt_id][5] <= 1'b1;
                     if (bt_id == start_id) begin
                         state <= S_DONE;
                     end else begin
@@ -256,18 +215,17 @@ module bfs_engine #(
                             DIR_DOWN:  begin bt_row <= bt_row + 1'b1; bt_id <= bt_id + GRID_WIDTH; end
                             DIR_LEFT:  begin bt_col <= bt_col - 1'b1; bt_id <= bt_id - 1'b1; end
                             DIR_RIGHT: begin bt_col <= bt_col + 1'b1; bt_id <= bt_id + 1'b1; end
-                            default:   state <= S_NO_PATH; // shouldn't happen if a path was found
+                            default:   state <= S_NO_PATH;
                         endcase
                     end
                 end
 
-                S_DONE:    ; // hold, wait for next `start`
-                S_NO_PATH: ; // hold, wait for next `start`
+                S_DONE:    ;
+                S_NO_PATH: ;
 
                 default: state <= S_IDLE;
             endcase
 
-            // Allow re-arming from DONE/NO_PATH on a new `start` pulse
             if ((state == S_DONE || state == S_NO_PATH) && start) begin
                 state <= S_INIT;
                 init_idx <= '0;

@@ -1,14 +1,4 @@
-// maze_loader.sv
-// Holds the static maze wall data (loaded from a text file via
-// $readmemb, one bit per line, row-major) and sequentially writes it
-// into a bfs_engine's wall_write interface at startup, then pulses
-// `start` once loading is complete.
-//
-// This exists so the maze definition lives in one place (a plain text
-// file, easy to regenerate or hand-edit) rather than being hardcoded
-// into RTL, and so the actual RTL doesn't need to change when the maze
-// does - matching the same pattern used for CPU program loading via
-// instr_mem.sv.
+// maze_loader.sv - reads a maze file, writes it into bfs_engine one cell at a time
 
 `timescale 1ns/1ps
 
@@ -24,7 +14,7 @@ module maze_loader #(
     output logic [$clog2(GRID_WIDTH*GRID_HEIGHT)-1:0]   wall_write_addr,
     output logic                                        wall_write_data,
     output logic                                        load_done,
-    output logic                                        bfs_start   // pulses once, right after loading finishes
+    output logic                                        bfs_start
 );
 
     localparam int NUM_CELLS = GRID_WIDTH * GRID_HEIGHT;
@@ -67,7 +57,7 @@ module maze_loader #(
                     end
                 end
                 L_START_PULSE: lstate <= L_DONE;
-                L_DONE: ; // hold forever
+                L_DONE: ;
                 default: lstate <= L_LOAD;
             endcase
         end

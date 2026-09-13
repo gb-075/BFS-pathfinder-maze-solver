@@ -1,30 +1,5 @@
-// bfs_maze_top.sv
-// Top-level integration: maze loader + BFS hardware pathfinder + VGA
-// controller + renderer + PS/2 keyboard input for interactive
-// start/end selection. This is the module a board-specific top-level
-// (with real pin assignments) would eventually instantiate.
-//
-// A slow step_en pulse throttles how fast the BFS search visibly
-// progresses - without this, the entire ~1700-cycle search would finish
-// in well under 1ms (a tiny fraction of one 1/60s video frame), so a
-// human watching the display would never see the frontier expand; it
-// would just appear solved instantly. SLOWDOWN_FACTOR is tuned so the
-// full search takes a few seconds, matching how the reference project
-// this is modeled on visibly animated its search.
-//
-// Keyboard controls: arrow keys move a selection cursor (shown in
-// yellow), '1' sets the start point to the cursor's position, '2' sets
-// the end point, Enter re-runs the search with the current start/end.
-// On power-up, before any key is pressed, the maze automatically runs
-// once with default start/end points (top-left to bottom-right) -
-// keyboard input is optional, not required to see the design work.
-//
-// IMPORTANT SIMPLIFICATION (same as noted in the earlier CPU+VGA
-// attempt): clk is assumed to already be the ~25 MHz VGA pixel clock,
-// and everything in this design - including the PS/2 receiver's system
-// clock - shares that single clock domain. Real hardware needs a
-// board-specific PLL to derive this from the actual oscillator - not
-// added yet since no target board is chosen.
+// bfs_maze_top.sv - wires the maze loader, BFS engine, VGA controller,
+// renderer, and PS/2 input together into one system
 
 `timescale 1ns/1ps
 
@@ -33,7 +8,7 @@ import key_pkg::*;
 module bfs_maze_top #(
     parameter int GRID_WIDTH      = 19,
     parameter int GRID_HEIGHT     = 15,
-    parameter int SLOWDOWN_FACTOR = 60000 // clocks per BFS step; tune for animation speed
+    parameter int SLOWDOWN_FACTOR = 60000
 ) (
     input  logic clk,
     input  logic rst_n,
@@ -50,7 +25,6 @@ module bfs_maze_top #(
 
     localparam int NUM_CELLS = GRID_WIDTH * GRID_HEIGHT;
 
-    // ---------------- PS/2 input pipeline ----------------
     logic [7:0] ps2_scan_code;
     logic ps2_data_valid, ps2_frame_error;
 
@@ -84,7 +58,6 @@ module bfs_maze_top #(
         .trigger_search(keyboard_trigger)
     );
 
-    // ---------------- Maze loader ----------------
     logic wall_write_en, wall_write_data, load_done, loader_bfs_start;
     logic [$clog2(NUM_CELLS)-1:0] wall_write_addr;
 
@@ -99,13 +72,9 @@ module bfs_maze_top #(
         .bfs_start(loader_bfs_start)
     );
 
-    // Search starts either automatically once (right after the maze
-    // loads, using cursor_controller's default corner-to-corner points)
-    // or whenever the user presses Enter with new points selected.
     logic bfs_start;
     assign bfs_start = loader_bfs_start | keyboard_trigger;
 
-    // ---------------- Step-rate throttle ----------------
     logic [31:0] slow_counter;
     logic step_en;
 
@@ -121,7 +90,6 @@ module bfs_maze_top #(
 
     assign step_en = (slow_counter == '0);
 
-    // ---------------- BFS engine ----------------
     logic done, path_found, busy;
     logic [$clog2(NUM_CELLS)-1:0] read_addr;
     logic [5:0] read_cell;
@@ -141,7 +109,6 @@ module bfs_maze_top #(
         .read_addr(read_addr), .read_cell(read_cell)
     );
 
-    // ---------------- VGA controller ----------------
     logic       video_on;
     logic [9:0] pixel_x, pixel_y;
 
@@ -151,7 +118,6 @@ module bfs_maze_top #(
         .video_on(video_on), .pixel_x(pixel_x), .pixel_y(pixel_y)
     );
 
-    // ---------------- Renderer ----------------
     maze_render #(
         .GRID_WIDTH(GRID_WIDTH), .GRID_HEIGHT(GRID_HEIGHT)
     ) u_render (
