@@ -8,6 +8,8 @@ module tb_cpu;
     logic rst_n;
     logic [31:0] pc_out;
     logic [31:0] instr_out;
+    logic [31:0] mmio_addr, mmio_wdata;
+    logic mmio_read, mmio_write;
 
     int num_cycles;
 
@@ -19,7 +21,12 @@ module tb_cpu;
         .clk       (clk),
         .rst_n     (rst_n),
         .pc_out    (pc_out),
-        .instr_out (instr_out)
+        .instr_out (instr_out),
+        .mmio_addr (mmio_addr),
+        .mmio_wdata(mmio_wdata),
+        .mmio_read (mmio_read),
+        .mmio_write(mmio_write),
+        .mmio_rdata(32'd0)
     );
 
     initial clk = 0;

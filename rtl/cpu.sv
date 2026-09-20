@@ -6,12 +6,22 @@ import alu_pkg::*;
 import imm_pkg::*;
 import ctrl_pkg::*;
 
-module cpu (
+module cpu #(
+    parameter bit MMIO_ENABLE = 1'b0,
+    parameter logic [31:0] MMIO_BASE = 32'h00000300,
+    parameter logic [31:0] MMIO_LAST = 32'h00000324
+) (
     input  logic clk,
     input  logic rst_n,
 
     output logic [31:0] pc_out,
-    output logic [31:0] instr_out
+    output logic [31:0] instr_out,
+
+    output logic [31:0] mmio_addr,
+    output logic [31:0] mmio_wdata,
+    output logic        mmio_read,
+    output logic        mmio_write,
+    input  logic [31:0] mmio_rdata
 );
 
     logic [31:0] pc, pc_next;
@@ -115,14 +125,26 @@ module cpu (
     );
 
     logic [31:0] mem_rdata;
+    logic [31:0] dmem_rdata;
+    logic        mmio_selected;
+
+    assign mmio_selected = MMIO_ENABLE &&
+                           (alu_result >= MMIO_BASE) &&
+                           (alu_result <= MMIO_LAST);
+
+    assign mmio_addr  = alu_result;
+    assign mmio_wdata = rs2_data;
+    assign mmio_read  = mem_read  && mmio_selected;
+    assign mmio_write = mem_write && mmio_selected;
+    assign mem_rdata  = mmio_selected ? mmio_rdata : dmem_rdata;
 
     data_mem u_dmem (
         .clk       (clk),
         .addr      (alu_result),
         .wdata     (rs2_data),
-        .mem_read  (mem_read),
-        .mem_write (mem_write),
-        .rdata     (mem_rdata)
+        .mem_read  (mem_read  && !mmio_selected),
+        .mem_write (mem_write && !mmio_selected),
+        .rdata     (dmem_rdata)
     );
 
     always_comb begin

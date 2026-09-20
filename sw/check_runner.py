@@ -57,7 +57,7 @@ def assemble_and_simulate(name, cycles):
     hexf = os.path.join(ROOT, "sw", f"{name}.hex")
 
     r = subprocess.run(
-        ["python3", os.path.join(ROOT, "sw", "assembler.py"), asm, hexf],
+        [sys.executable, os.path.join(ROOT, "sw", "assembler.py"), asm, hexf],
         capture_output=True, text=True
     )
     if r.returncode != 0:
