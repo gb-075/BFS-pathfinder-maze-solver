@@ -2,7 +2,7 @@
 
 This project was started to learn digital design through a hands-on project alongside doing courses/learning platforms like nand2Tetris and HDLBits. The goal was to understand how a CPU really works at the RTL level, and eventually build toward FPGA/ASIC design work. It began as a single-cycle RISC-V CPU, and once that was working I wanted to build something more interesting on top of it, which turned into a hardware maze solver with a live VGA display and keyboard input.
 
-Everything here runs in simulation (Icarus Verilog). I don't have an FPGA board yet, so nothing has been synthesized or run on real hardware. A Digilent Nexys A7-100T will be ordered soon, and constraints/ has pin assignments already prepared for it.
+Everything here runs in simulation (Icarus Verilog). I don't have an FPGA board yet, so the project hasn't been synthesized yet for real hardware. However, a Digilent Nexys A7-100T will be ordered soon, and constraints/ has pin assignments already prepared for it.
 
 I've been working on this project (including planning and the first few lines of SystemVerilog) since June, 2026. It took me until the end of August, however, to finally start learning how to use Git by completing a few courses so that I could put my work in a repository. I am still constantly learning as I make more commits!
 
@@ -19,7 +19,7 @@ I've been working on this project (including planning and the first few lines of
 
 `rtl/alu.sv`, `rtl/regfile.sv`, `rtl/control_unit.sv`, `rtl/imm_gen.sv`, `rtl/instr_mem.sv`, `rtl/data_mem.sv`, `rtl/cpu.sv`
 
-A classic single-cycle datapath — one instruction fetches, decodes, executes, accesses memory, and writes back, all in one clock cycle. It implements a working subset of RV32I:
+It uses a single-cycle datapath, so one instruction fetches, decodes, executes, accesses memory, and writes back, all in one clock cycle. It implements a working subset of RV32I:
 
 - R-type and I-type ALU ops: `add sub and or xor sll srl sra slt sltu addi andi ori xori slti sltiu slli srli srai`
 - Memory: `lw sw` (word-aligned only)
@@ -68,7 +68,7 @@ The integration uses `0x300` and above so it stays clear of the two 256-byte Gam
 
 ### Maze input
 
-The maze layout is supplied to the hardware as a `.mem` file. Each entry is one cell in row-major order: `1` means wall and `0` means open. The maze does **not** have to come from Python — a `.mem` file can be created manually and passed to the loader, so the hardware can solve a user-supplied maze without changing the BFS RTL.
+The maze layout is supplied to the hardware as a `.mem` file. Each entry is one cell in row-major order: `1` means wall and `0` means open. The maze does **not** have to come from Python. A `.mem` file can be created manually and passed to the loader, so the hardware can solve a user-supplied maze without changing the BFS RTL.
 
 For simulation, `maze_loader.sv` can take a maze file through the `+MAZEFILE=<path>` plusarg. The repository also includes `sw/bfs/gen_maze.py` as an optional utility that generates a reproducible randomized maze and writes it into the same `.mem` format.
 
@@ -76,7 +76,7 @@ The maze layout and the start/end points are separate inputs. The maze comes fro
 
 ## How I verified all of this
 
-I tried to test everything the way I understand real verification work to look like, rather than just running my own code and eyeballing the output:
+I tried to test everything like how real verification work looks like:
 
 - **Directed testbenches** for every module, checking specific expected values.
 - **A hand-solved test maze** (5x5, small enough to trace by hand) to check the BFS engine's actual output against a shortest path I computed myself, cell by cell — not just "did it find a path."
@@ -89,13 +89,13 @@ I tried to test everything the way I understand real verification work to look l
 
 Current state: the full Icarus Verilog regression passes cleanly, including the original CPU tests (8/8), VGA timing, BFS engine, PS/2 receiver, scan-code decoder, cursor controller, pixel-to-cell mapping, the original keyboard/VGA maze system, and the CPU/MMIO/BFS end-to-end integration. The integration test verifies the five expected MMIO writes, latched coordinates, exactly one CPU-caused start pulse, repeated status polling, busy-to-done progression, `path_found`, and the full hand-computed 5x5 shortest path.
 
-## Things that actually tripped me up
+## Bugs and difficulties I overcame
 
-A few bugs worth mentioning, since figuring them out helped teach me more than the parts that worked on the first try:
+A few bugs worth mentioning, since figuring them out was helpful in learning:
 
 - **An initialization bug that looked fine but wasn't.** I declared some signals in the CPU using `logic x = some_expression;`, which in SystemVerilog only runs once at time zero (it's not a continuous connection). Every downstream signal quietly used a stale value forever. The regression suite caught it immediately (everything read zero), and the fix was switching to explicit `assign` statements.
 - **A testbench race condition.** In a few of the PS/2 testbenches, I was driving stimulus signals with blocking assignments right after a clock edge, but since the actual hardware module was also reacting to that same edge, there was a real race depending on simulator scheduling, and every test failed in a confusing way. The fix is standard practice once you know it: drive testbench stimulus with nonblocking assignments so there's no ambiguity about which cycle's value the hardware sees.
-- **Pipeline latency I didn't account for.** When I rewrote the pixel-to-cell coordinate logic to use counters instead of division (better for real FPGA timing), the new version was registered instead of combinational — meaning its output is naturally one cycle behind its input, which is completely normal for synchronous hardware. My testbench's reference calculation didn't account for that at first, so it looked broken when the actual logic was correct.
+- **Pipeline latency I didn't account for.** When I rewrote the pixel-to-cell coordinate logic to use counters instead of division (better for real FPGA timing), the new version was registered instead of combinational. This meant that its output is naturally one cycle behind its input, which is completely normal for synchronous hardware. My testbench's reference calculation didn't account for that at first, so it looked broken when the actual logic was correct.
 
 ## Building and running
 
@@ -115,7 +115,7 @@ There are a few more granular targets in the Makefile (`test-vga`, `test-ps2`, `
 
 ## What's next
 
-The design is complete in simulation. What's left is genuinely hardware-dependent:
+The design is complete in simulation. What's left is hardware deployment:
 
 1. **Get the Nexys A7-100T set up.** `constraints/nexys_a7_100t.xdc` has real pin numbers for this board (VGA, PS/2, clock, reset), and `rtl/bfs/nexys_a7_top.sv` is the board-level wrapper — it still needs a Vivado Clocking Wizard IP generated to convert the board's 100 MHz oscillator down to the ~25 MHz this design assumes, which can't be done outside of Vivado itself.
 2. Actually synthesize it, check timing closure and resource usage, and see if it works on a real monitor and keyboard.
